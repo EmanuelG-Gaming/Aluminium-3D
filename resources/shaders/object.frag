@@ -7,7 +7,7 @@ in vec2 vTextureCoords;
 
 const vec3 lightDir = vec3(-1.0, -1.3, 0.0);
 const vec4 fogColor = vec4(0.5, 0.6, 0.9, 1.0); 
-const float fogIntensity = 0.005;
+const float fogIntensity = 0.0005;
 
 struct Material {
     vec3 ambientColor;
@@ -56,4 +56,5 @@ void main() {
     float fog = clamp(exp(-fogIntensity * z * z), 0.2, 1.0);
 
     outColor = mix(fogColor, vec4(color, 1.0), fog);
+    //outColor = vec4(color, 1.0);
 }  

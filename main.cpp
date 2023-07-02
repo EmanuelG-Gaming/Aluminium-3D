@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <array>
+#include <map>
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
@@ -12,6 +13,9 @@
 
 //#include <GLES2/gl2.h>
 #include <GLES3/gl3.h>
+
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
@@ -81,11 +85,12 @@ struct Vec2f {
         
          return *this;
      }
-     Vec2f interpolate(Vec2f &other, float progress) {
-         x = x + (other.x - x) * progress;
-         y = y + (other.y - y) * progress;
+     Vec2f interpolate(const Vec2f &other, float progress) {
+         Vec2f result;
+         result.x = x + (other.x - x) * progress;
+         result.y = y + (other.y - y) * progress;
         
-         return *this;
+         return result;
      }
      
      
@@ -461,6 +466,166 @@ struct Quaternion {
     }
 };
 
+struct CharacterInfo {
+    float advX, advY;
+    
+    float bitmapWidth, bitmapHeight;
+    float bitmapLeft, bitmapTop;
+    
+    float offsetX = 0.0f;
+};
+class TextAtlas {
+     public:
+         TextAtlas(FT_Face font) {
+              this->font = font;
+              this->glyph = font->glyph;
+              
+              this->adjust_size();
+         }
+         void adjust_size() {
+              int width = 0;
+              int height = 0;
+              
+              // Load ASCII characters
+              for (int i = 32; i < 128; i++) {
+                   if (FT_Load_Char(font, i, FT_LOAD_RENDER)) {
+                        printf("Couldn't load character %c.\n", i);
+                        continue;
+                   }
+                   
+                   width += glyph->bitmap.width;
+                   if (glyph->bitmap.rows > height) {
+                        height = glyph->bitmap.rows;
+                   }
+              }
+              this->atlasWidth = width;
+              this->atlasHeight = height;
+         }
+         
+         void load() {
+              this->add_empty_texture();
+              
+              int x = 0;
+              for (int i = 32; i < 128; i++) {
+                   if (FT_Load_Char(font, i, FT_LOAD_RENDER)) {
+                        continue;
+                   }
+                   glTexSubImage2D(GL_TEXTURE_2D, 0, x, 0, glyph->bitmap.width, glyph->bitmap.rows, GL_RED, GL_UNSIGNED_BYTE, glyph->bitmap.buffer);
+                   
+                   CharacterInfo ch;
+                   ch.advX = glyph->advance.x >> 6;
+                   ch.advY = glyph->advance.y >> 6;
+                   
+                   ch.bitmapWidth = glyph->bitmap.width;
+                   ch.bitmapHeight = glyph->bitmap.rows;
+                   
+                   ch.bitmapLeft = glyph->bitmap_left;
+                   ch.bitmapTop = glyph->bitmap_top;
+                   
+                   ch.offsetX = (float) x / atlasWidth;
+                   
+                   characters[i] = ch;
+                   
+                   x += glyph->bitmap.width;
+              }
+         }
+         void use() {
+              glActiveTexture(GL_TEXTURE0);
+              glBindTexture(GL_TEXTURE_2D, this->textureIndex);
+         }
+         
+         void dispose() {
+             glDeleteTextures(1, &textureIndex);
+             FT_Done_Face(font);
+         }
+         
+         std::array<CharacterInfo, 128> &get_characters() { return characters; }
+         float get_width() { return atlasWidth; }
+         float get_height() { return atlasHeight; }
+         
+     private:
+         void add_empty_texture() {
+              glActiveTexture(GL_TEXTURE0);
+              glGenTextures(1, &textureIndex);
+              
+              glBindTexture(GL_TEXTURE_2D, textureIndex);
+              glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+              
+              glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, atlasWidth, atlasHeight, 0, GL_RED, GL_UNSIGNED_BYTE, 0);
+              
+              
+              glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+              glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                  
+              glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+              glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+         }
+     private:
+         FT_Face font;
+         FT_GlyphSlot glyph;
+         GLuint textureIndex;
+         
+         int atlasWidth, atlasHeight;
+         std::array<CharacterInfo, 128> characters;
+};
+
+class FreeType {
+     public:
+         static FreeType& get() {
+              static FreeType ins;
+              return ins;
+         }
+         
+         void load() {
+              errorHandler = FT_Init_FreeType(&library);
+              if (errorHandler) {
+                   throw std::runtime_error("FreeType library couldn't load.");
+              }
+              add_atlas("roboto", "/system/fonts/Roboto-Regular.ttf", 48);
+         }
+         
+         void add_atlas(const char *name, const char *fileName, int height) {
+              FT_Face font;
+              
+              errorHandler = FT_New_Face(library, fileName, 0, &font);
+              if (errorHandler == FT_Err_Unknown_File_Format) {
+                  throw std::runtime_error("The font file has an unknown format."); 
+              } else if (errorHandler) {
+                  throw std::runtime_error("Other error that occured when loading font.");
+              }
+              
+              FT_Set_Pixel_Sizes(font, 0, height);
+              TextAtlas *atlas = new TextAtlas(font);
+              atlas->load();
+              
+              atlases[name] = atlas;
+         }
+         TextAtlas *find_atlas(const char *name) {
+              return atlases[name];
+         }
+         
+         void dispose() {
+              for (auto &atlas : atlases) {
+                   TextAtlas *second = atlas.second;
+                   second->dispose();
+              }
+              FT_Done_FreeType(library);
+         }
+         
+     private:
+        FreeType() {}
+        ~FreeType() {}
+     public:
+        FreeType(FreeType const&) = delete;
+        void operator = (FreeType const&) = delete;
+        
+     private:
+         FT_Library library;
+         FT_Error errorHandler;
+         std::map<const char*, TextAtlas*> atlases;
+};
+
+
 class Camera {
     public:
         Vec3f position;
@@ -698,6 +863,14 @@ class Shader {
        GLuint program;
 };
 
+struct OverlayVertex {
+    Vec2f Position;
+    Vec3f Color;
+    Vec2f TextureCoords;
+    
+    OverlayVertex(float x = 0.0f, float y = 0.0f, float tx = 0.0f, float ty = 0.0f, Vec3f Color = Vec3f(1.0f, 1.0f, 1.0f)) : Position(x, y), TextureCoords(tx, ty), Color(Color) {}
+};
+
 struct MeshVertex {
     Vec3f Position;
     Vec3f Normal;
@@ -707,67 +880,197 @@ struct MeshVertex {
     MeshVertex(float x = 0.0f, float y = 0.0f, float z = 0.0f, float nx = 0.0f, float ny = 0.0f, float nz = 0.0f, float tx = 0.0f, float ty = 0.0f) : Position(x, y, z), Normal(nx, ny, nz), TextureCoords(tx, ty) {}
 };
 
+enum class TextureTypes {
+    T2D = GL_TEXTURE_2D,
+    TCube = GL_TEXTURE_CUBE_MAP,
+};
+
+template <TextureTypes T>
 struct Texture {
     public:
          Texture() : repeating(true), smooth(false) {
               textureIndex = 0;
          }
-         Texture(std::string fileName) : Texture() {
-              setup(fileName);
+         Texture(std::vector<std::string> fileNames) : Texture() {
+              setup(fileNames);
          }
          void use() {
               if (textureIndex) {
+                   GLenum type = static_cast<GLenum>(T);
+                   
                    glActiveTexture(GL_TEXTURE0);
-                   glBindTexture(GL_TEXTURE_2D, textureIndex);
+                   glBindTexture(type, textureIndex);
               }
          }
          void dispose() {
               if (textureIndex) glDeleteTextures(1, &textureIndex);
          }
     
-         void setup(const std::string &fileName) {
-              
-              texture = load_surface(fileName.c_str());
-              if (texture == NULL) {
-                   printf("Texture couldn't load.");
-                   return;
-              }
+         void setup(const std::vector<std::string> &fileNames) {
+              GLenum type = static_cast<GLenum>(T);
               
               glGenTextures(1, &textureIndex);
-              glBindTexture(GL_TEXTURE_2D, textureIndex);
+              glBindTexture(type, textureIndex);
+              if (type == GL_TEXTURE_2D) {
+                       SDL_Surface *texture = load_surface(fileNames.at(0).c_str());
+                       if (texture == NULL) {
+                           printf("2D Texture couldn't load.\n");
+                           return;
+                       }
               
-              glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texture->w, texture->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture->pixels);
-              glGenerateMipmap(GL_TEXTURE_2D);
-                   
-              if (repeating) {
-                   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-                   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-              } else {
-                   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texture->w, texture->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture->pixels);
+                       if (repeating) {
+                           glTexParameteri(type, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                           glTexParameteri(type, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                       } else {
+                           glTexParameteri(type, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                           glTexParameteri(type, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                       }
+                       SDL_FreeSurface(texture);
+              } else if (type == GL_TEXTURE_CUBE_MAP) {
+                       for (int i = 0; i < fileNames.size(); i++) {
+                            std::string faceName = fileNames.at(i);
+                            SDL_Surface *texture = load_surface(faceName.c_str());
+                            
+                            if (texture == NULL) {
+                                printf("Couldn't load the cubemap face/s.\n");
+                                return;
+                            }
+                            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA, texture->w, texture->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, texture->pixels);
+                            
+                            if (repeating) {
+                                glTexParameteri(type, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                                glTexParameteri(type, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                                glTexParameteri(type, GL_TEXTURE_WRAP_R, GL_REPEAT);
+                            } else {
+                                glTexParameteri(type, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                                glTexParameteri(type, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                                glTexParameteri(type, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+                            }
+                            SDL_FreeSurface(texture);
+                       }
               }
+              
+              glGenerateMipmap(type);
+                   
               
               if (smooth) {
-                   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                   glTexParameteri(type, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                   glTexParameteri(type, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
               } else {
-                   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                   glTexParameteri(type, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                   glTexParameteri(type, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
               }
               
-              glBindTexture(GL_TEXTURE_2D, 0);
-              SDL_FreeSurface(texture);
-              
+              glBindTexture(type, 0);
          }
     protected:
-         // The texture data
-         SDL_Surface *texture;
-         
          GLuint textureIndex;
          
          // Texture parameters
          bool repeating;
          bool smooth;
+};
+
+struct BatchType {
+    GLenum renderType;
+};
+class OverlayBatch {
+    public:
+       BatchType type;
+       OverlayBatch(int capacity, GLenum renderType, Shader *shader) {
+           this->vertexCapacity = capacity;
+           this->verticesUsed = 0;
+           this->vbo = this->vao = 0;
+         
+           this->type.renderType = renderType;
+           this->shader = shader;
+           
+           setup();
+       }
+       
+       void setup() {
+           glGenVertexArrays(1, &this->vao);
+           glBindVertexArray(this->vao);
+           
+           glGenBuffers(1, &this->vbo);
+           glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+           glBufferData(GL_ARRAY_BUFFER, this->vertexCapacity * sizeof(OverlayVertex), nullptr, GL_STREAM_DRAW); 
+           
+           GLint position = 0;
+           glVertexAttribPointer(position, 2, GL_FLOAT, GL_FALSE, sizeof(OverlayVertex), (void*) offsetof(OverlayVertex, Position));
+           glEnableVertexAttribArray(position);
+           
+           GLint color = 1;
+           glVertexAttribPointer(color, 3, GL_FLOAT, GL_FALSE, sizeof(OverlayVertex), (void*) offsetof(OverlayVertex, Color));
+           glEnableVertexAttribArray(color);
+           
+           GLint textureCoords = 2;
+           glVertexAttribPointer(textureCoords, 2, GL_FLOAT, GL_FALSE, sizeof(OverlayVertex), (void*) offsetof(OverlayVertex, TextureCoords));
+           glEnableVertexAttribArray(textureCoords);
+           
+           glBindVertexArray(0);
+           glDisableVertexAttribArray(position);
+           glDisableVertexAttribArray(color);
+           glDisableVertexAttribArray(textureCoords);
+           glBindBuffer(GL_ARRAY_BUFFER, 0);
+       }
+       
+       void add(const std::vector<OverlayVertex> &vertices) {
+           int extra = this->get_extra_vertices();
+           if (vertices.size() + extra > vertexCapacity - verticesUsed) {
+               return;
+           }
+           if (vertices.empty()) {
+               return;
+           }
+           if (vertices.size() > vertexCapacity) {
+               return;
+           }
+           
+           glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+           if (extra > 0) {
+               glBufferSubData(GL_ARRAY_BUFFER, (verticesUsed + 0) * sizeof(OverlayVertex), sizeof(OverlayVertex), &lastUsed);
+               glBufferSubData(GL_ARRAY_BUFFER, (verticesUsed + 1) * sizeof(OverlayVertex), sizeof(OverlayVertex), &vertices[0]);
+           }
+           glBufferSubData(GL_ARRAY_BUFFER, verticesUsed * sizeof(OverlayVertex), vertices.size() * sizeof(OverlayVertex), &vertices[0]);
+            
+           glBindBuffer(GL_ARRAY_BUFFER, 0);
+           verticesUsed += vertices.size() + extra;
+           lastUsed = vertices.back();
+       }
+       
+       void render() {
+           if (verticesUsed == 0) {
+               return;
+           }
+           glBindVertexArray(this->vao);
+           glDrawArrays(this->type.renderType, 0, verticesUsed);
+           
+           this->verticesUsed = 0;
+       }
+       
+       
+       int get_extra_vertices() {
+           bool mode = (this->type.renderType == GL_TRIANGLE_STRIP && verticesUsed > 0);
+           return mode ? 2 : 0;
+       }
+       void dispose() {
+           if (this->vbo) {
+               glDeleteBuffers(1, &this->vbo);
+           }
+           if (this->vao) {
+               glDeleteBuffers(1, &this->vao);
+           }
+       }
+    protected:
+       int vertexCapacity;
+       int verticesUsed;
+       OverlayVertex lastUsed;
+       
+       GLuint vbo;
+       GLuint vao;
+       Shader *shader;
 };
 
 struct Material {
@@ -787,11 +1090,11 @@ struct MeshStructure {
 struct Mesh {
     public:
          Mesh() : useTextures(false) {
-              texture = new Texture();
+              texture = new Texture<TextureTypes::T2D>();
               vbo = ibo = vao = 0;
          }
          void set_texture(const std::string &fileName) {
-              texture->setup(fileName);
+              texture->setup({ fileName });
               useTextures = true;
          }
          void unuse_texture() { useTextures = false; }
@@ -909,7 +1212,7 @@ struct Mesh {
         
     protected:
          MeshStructure structure;
-         Texture *texture;
+         Texture<TextureTypes::T2D> *texture;
          bool useTextures;
          bool useIndices = true;
          
@@ -920,16 +1223,144 @@ struct Mesh {
          GLuint vao;
 };
 
+struct Skybox {
+    public:
+         Skybox(std::vector<std::string> fileNames) {
+              std::vector<MeshVertex> vertices {
+                   // Position
+                   // Front
+                   MeshVertex(-0.5, -0.5, 0.5),
+                   MeshVertex(0.5, -0.5, 0.5),
+                   MeshVertex(0.5, 0.5, 0.5),
+                   MeshVertex(-0.5, 0.5, 0.5),
+                   // Top
+                   MeshVertex(-0.5, 0.5, 0.5),
+                   MeshVertex(0.5, 0.5, 0.5),
+                   MeshVertex(0.5, 0.5, -0.5),
+                   MeshVertex(-0.5, 0.5, -0.5),
+                   // Back
+                   MeshVertex(0.5, -0.5, -0.5),
+                   MeshVertex(-0.5, -0.5, -0.5),
+                   MeshVertex(-0.5, 0.5, -0.5),
+                   MeshVertex(0.5, 0.5, -0.5),
+                   // Bottom
+                   MeshVertex(-0.5, -0.5, -0.5),
+                   MeshVertex(0.5, -0.5, -0.5),
+                   MeshVertex(0.5, -0.5, 0.5),
+                   MeshVertex(-0.5, -0.5, 0.5),
+                   // Left
+                   MeshVertex(-0.5, -0.5, -0.5),
+                   MeshVertex(-0.5, -0.5, 0.5),
+                   MeshVertex(-0.5, 0.5, 0.5),
+                   MeshVertex(-0.5, 0.5, -0.5),
+                   // Right
+                   MeshVertex(0.5, -0.5, 0.5),
+                   MeshVertex(0.5, -0.5, -0.5),
+                   MeshVertex(0.5, 0.5, -0.5),  
+                   MeshVertex(0.5, 0.5, 0.5)
+              };
+              
+              for (auto &vertex : vertices) {
+                   vertex.Position.x *= 2.0f;
+                   vertex.Position.y *= 2.0f;
+                   vertex.Position.z *= 2.0f;
+                
+              }
+              
+              // Indices
+              std::vector<GLuint> indices = {
+                   // Front
+                   0, 1, 2,
+                   2, 3, 0,
+                   // Top
+                   4, 5, 6,
+                   6, 7, 4,
+                   // Back
+                   8, 9, 10,
+                   10, 11, 8,
+                   // Bottom
+                   12, 13, 14,
+                   14, 15, 12,
+                   // Left
+                   16, 17, 18,
+                   18, 19, 16,
+                   // Right
+                   20, 21, 22,
+                   22, 23, 20
+              };
+         
+              structure = MeshStructure(vertices, indices);
+              texture = new Texture<TextureTypes::TCube>();
+              texture->setup(fileNames);
+              
+              vbo = ibo = vao = 0;
+              this->post_setup();
+         }
+         void render(Shader *shader) {
+              if (!vao) return;
+              
+              glCullFace(GL_BACK);
+              glDepthMask(GL_FALSE);
+              texture->use();
+              
+              glBindVertexArray(vao);
+              glDrawElements(GL_TRIANGLES, structure.indices.size(), GL_UNSIGNED_INT, 0);
+              
+              glBindVertexArray(0);
+              glDepthMask(GL_TRUE);
+              glCullFace(GL_FRONT);
+         }
+         void dispose() {
+              if (vbo) glDeleteBuffers(1, &vbo);
+              if (ibo) glDeleteBuffers(1, &ibo);
+              if (vao) glDeleteVertexArrays(1, &vao);
+              texture->dispose();
+         }
+    private:
+         void post_setup() {
+              if (!vao) glGenVertexArrays(1, &vao);
+              glBindVertexArray(vao);
+           
+              if (!vbo) glGenBuffers(1, &vbo);
+              if (!ibo) glGenBuffers(1, &ibo);
+              glBindBuffer(GL_ARRAY_BUFFER, vbo);
+              glBufferData(GL_ARRAY_BUFFER, structure.vertices.size() * sizeof(MeshVertex), structure.vertices.data(), GL_STATIC_DRAW); 
+              
+              glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+              glBufferData(GL_ELEMENT_ARRAY_BUFFER, structure.indices.size() * sizeof(GLuint), structure.indices.data(), GL_STATIC_DRAW);         
+               
+              // Position
+              GLint position = 0;
+              glVertexAttribPointer(position, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*) offsetof(MeshVertex, Position));
+              glEnableVertexAttribArray(position);
+              
+              glBindVertexArray(0);
+              glBindBuffer(GL_ARRAY_BUFFER, 0);
+              glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+              
+              glDisableVertexAttribArray(position);
+         }
+    protected:
+         MeshStructure structure;
+         Texture<TextureTypes::TCube> *texture;
+         
+         GLuint vbo, ibo;
+         GLuint vao;
+};
+
 namespace Materials {
     Material aluminium, gold, copper,
-             grass;
+             grass, wood, defaultMaterial;
     
     void load() {
+         defaultMaterial = Material(Vec3f(1.0f, 1.0f, 1.0f), Vec3f(1.0f, 1.0f, 1.0f), Vec3f(0.0f, 0.0f, 0.0f), 0.1f);
+         
          aluminium = Material(Vec3f(0.39f, 0.39f, 0.39f), Vec3f(0.504f, 0.504f, 0.504f), Vec3f(0.508f, 0.508f, 0.508f), 0.2f);
          gold = Material(Vec3f(0.39f, 0.34f, 0.22f), Vec3f(0.75f, 0.6f, 0.22f), Vec3f(0.62f, 0.55f, 0.36f), 0.2f);
          copper = Material(Vec3f(0.39f, 0.30f, 0.22f), Vec3f(0.73f, 0.30f, 0.11f), Vec3f(0.45f, 0.33f, 0.28f), 0.2f);
          
          grass = Material(Vec3f(0.7f, 0.7f, 0.7f), Vec3f(1.0f, 1.0f, 1.0f), Vec3f(0.0f, 0.0f, 0.0f));
+         wood = Material(Vec3f(0.7f, 0.7f, 0.7f), Vec3f(1.0f, 1.0f, 1.0f), Vec3f(0.5f, 0.435f, 0.42f), 0.1f);
     }
 };
 
@@ -1023,6 +1454,7 @@ namespace MeshGenerator {
               MeshVertex(0.5, 0.5, -0.5,  1.0, 0.0, 0.0, depth, height),  
               MeshVertex(0.5, 0.5, 0.5,  1.0, 0.0, 0.0,  0.0, height)
          };
+         
          for (auto &vertex : vertices) {
               vertex.Position.x *= width;
               vertex.Position.y *= height;
@@ -1073,10 +1505,11 @@ namespace MeshGenerator {
      void load_from_files(Mesh *source, const std::string &objName, const std::string &mtlName) {
          std::ifstream objRead(objName);
          std::vector<Vec3f> positions, normals;
+         std::vector<Vec2f> textureCoordinates;
          std::vector<GLuint> vertexIndices, uvIndices, normalIndices;
          
          if (!objRead.is_open() || objRead.fail()) {
-              printf("Couldn't open the .obj file.");
+              printf("Couldn't open the .obj file.\n");
               return;
          }   
        
@@ -1104,6 +1537,13 @@ namespace MeshGenerator {
                   
                   normals.push_back(normal);
               }
+              // Vertex texture coordinates
+              else if (compare(key, "vt")) {
+                  Vec2f coords;
+                  stream >> coords.x >> coords.y;
+                  
+                  textureCoordinates.push_back(coords);
+              }
               // Face indices
               else if (compare(key, "f")) {
                   std::string faceIndices[3];
@@ -1128,7 +1568,7 @@ namespace MeshGenerator {
               GLuint indexUV = uvIndices.at(i);
               GLuint indexNormal = normalIndices.at(i);
               
-              MeshVertex vertex = MeshVertex(positions.at(indexPosition), normals.at(indexNormal));
+              MeshVertex vertex = MeshVertex(positions.at(indexPosition), normals.at(indexNormal), textureCoordinates.at(indexUV));
               structure.vertices.push_back(vertex);
           }
           source->unuse_indices();
@@ -1142,10 +1582,11 @@ namespace MeshGenerator {
          std::ifstream objRead(objName);
          
          std::vector<Vec3f> positions, normals;
+         std::vector<Vec2f> textureCoordinates;
          std::vector<GLuint> vertexIndices, uvIndices, normalIndices;
          
          if (!objRead.is_open() || objRead.fail()) {
-              printf("Couldn't open the .obj file.");
+              printf("Couldn't open the .obj file.\n");
               return result;
          }   
        
@@ -1173,6 +1614,13 @@ namespace MeshGenerator {
                   
                   normals.push_back(normal);
               }
+              // Vertex texture coordinates
+              else if (compare(key, "vt")) {
+                  Vec2f coords;
+                  stream >> coords.x >> coords.y;
+                  
+                  textureCoordinates.push_back(coords);
+              }
               // Face indices
               else if (compare(key, "f")) {
                   std::string faceIndices[3];
@@ -1197,7 +1645,7 @@ namespace MeshGenerator {
                        GLuint indexUV = uvIndices.at(i);
                        GLuint indexNormal = normalIndices.at(i);
               
-                       MeshVertex vertex = MeshVertex(positions.at(indexPosition), normals.at(indexNormal));
+                       MeshVertex vertex = MeshVertex(positions.at(indexPosition), normals.at(indexNormal), textureCoordinates.at(indexUV));
                        structure.vertices.push_back(vertex);
                   }
                   if (!vertexIndices.empty()) {
@@ -1216,7 +1664,7 @@ namespace MeshGenerator {
               GLuint indexUV = uvIndices.at(i);
               GLuint indexNormal = normalIndices.at(i);
               
-              MeshVertex vertex = MeshVertex(positions.at(indexPosition), normals.at(indexNormal));
+              MeshVertex vertex = MeshVertex(positions.at(indexPosition), normals.at(indexNormal), textureCoordinates.at(indexUV));
               structure.vertices.push_back(vertex);
          }
          if (!vertexIndices.empty()) {
@@ -1280,6 +1728,85 @@ namespace MeshGenerator {
           float z = (maximum.z + minimum.z) / 2.0f;
           
           return Vec3f(x, y, z);
+     }
+};
+
+namespace UIRenderer {
+     Shader *overlayShader;
+     OverlayBatch *batch;
+     TextAtlas *textAtlas;
+     
+     void load() {
+           overlayShader = new Shader("resources/shaders/overlay.vert", "resources/shaders/overlay.frag"); 
+           batch = new OverlayBatch(4096, GL_TRIANGLES, overlayShader);
+           
+           textAtlas = FreeType::get().find_atlas("roboto");
+     }
+     void render() {
+           glDisable(GL_DEPTH_TEST);
+           overlayShader->use();
+           
+           textAtlas->use();
+           batch->render();
+           
+           glEnable(GL_DEPTH_TEST);
+     }
+     
+     void dispose() {
+           overlayShader->clear();
+           batch->dispose();
+     }
+     
+     void draw_string_centered(const std::string &text, float x, float y, float sclX = 1.0f, float sclY = 1.0f, Vec3f color = Vec3f(1.0f, 1.0f, 1.0f)) {
+           std::vector<OverlayVertex> vertices;
+           float scaleX = sclX * 0.002f;
+           float scaleY = sclY * 0.002f;
+            
+           float w = 0.0f;
+           float h = 0.0f;
+           std::string::const_iterator iterator;
+           for (iterator = text.begin(); iterator != text.end(); iterator++) {
+                CharacterInfo ch = textAtlas->get_characters().at(*iterator);
+                
+                w += ch.advX;
+                
+                if (ch.bitmapHeight > h) {
+                    h = ch.bitmapHeight;
+                }
+           }
+           if (!text.empty()) {
+                CharacterInfo ch = textAtlas->get_characters().at(*text.end());
+                w -= (ch.advX - (ch.bitmapLeft + ch.bitmapWidth));
+           }
+           
+           w *= scaleX;
+           h *= scaleY;
+           
+           
+           float px = x - w / 2.0f;
+           float py = y - h / 2.0f;
+           for (iterator = text.begin(); iterator != text.end(); iterator++) {
+                CharacterInfo ch = textAtlas->get_characters().at(*iterator);
+                   
+                float x2 = px + ch.bitmapLeft * scaleX;
+                float y2 = -py - ch.bitmapTop * scaleY;
+                float width = ch.bitmapWidth * scaleX;
+                float height = ch.bitmapHeight * scaleY;
+                   
+                px += ch.advX * scaleX;
+                py += ch.advY * scaleY;
+                   
+                   
+                vertices.push_back(OverlayVertex(x2, -y2, ch.offsetX, 0, color));
+                vertices.push_back(OverlayVertex(x2 + width, -y2, ch.offsetX + ch.bitmapWidth / textAtlas->get_width(), 0, color));
+                vertices.push_back(OverlayVertex(x2, -y2 - height, ch.offsetX, ch.bitmapHeight / textAtlas->get_height(), color));
+                   
+                vertices.push_back(OverlayVertex(x2 + width, -y2, ch.offsetX + ch.bitmapWidth / textAtlas->get_width(), 0, color));
+                vertices.push_back(OverlayVertex(x2 + width, -y2 - height, ch.offsetX + ch.bitmapWidth / textAtlas->get_width(), ch.bitmapHeight / textAtlas->get_height(), color));
+                vertices.push_back(OverlayVertex(x2, -y2 - height, ch.offsetX, ch.bitmapHeight / textAtlas->get_height(), color));
+           }
+              
+           batch->add(vertices);
      }
 };
 
@@ -1474,11 +2001,15 @@ namespace CollisionDetection {
 struct Object {
     Transform *transform;
     Collider *collider = 0;
-    int index = 0;
-    bool immovable = false;
-    Mesh *mesh;
     Manifold *colliding = 0;
     Vec3f collidingNormal = Vec3f(0.0f, 0.0f, 0.0f);
+    std::function<void(Manifold, float)> onCollision;
+    
+    int index = 0;
+    bool immovable = false;
+    bool isTrigger = false;
+    Mesh *mesh;
+    
     
     Object() {
         transform = new Transform();
@@ -1488,7 +2019,7 @@ struct Object {
         transform = new Transform();
         mesh = new Mesh();
     }
-    
+    virtual ~Object() {}
     
     void place(const Vec3f &to) {
         transform->position = to;
@@ -1507,7 +2038,9 @@ struct Object {
     void set_immovable(bool to) {
         immovable = to;
     }
-    
+    void set_trigger(bool to) {
+        isTrigger = to;
+    }
     
     void set_material(const Material &material) {
         mesh->set_material(material);
@@ -1517,6 +2050,13 @@ struct Object {
     }
     void set_structure(const MeshStructure &structure) {
         mesh->set_structure(structure);
+    }
+    void set_collider(Collider *to) {
+        this->collider = to;
+    }
+    
+    void on_collision(const std::function<void(Manifold, float)> &collision) {
+        this->onCollision = collision;
     }
     
     bool has_collided() { return (colliding); }
@@ -1554,7 +2094,7 @@ struct SphereObject : public RigidBody {
     SphereObject() : RigidBody() {
          this->collider = new SphereCollider(radius);
          
-         this->set_structure(MeshGenerator::get_sphere_mesh(15, 15));
+         this->set_structure(MeshGenerator::get_sphere_mesh(10, 10));
          this->mesh->scale(radius, radius, radius); 
     }
     SphereObject(float radius) : RigidBody() {
@@ -1562,7 +2102,7 @@ struct SphereObject : public RigidBody {
          this->collider = new SphereCollider(radius);
          
          
-         this->set_structure(MeshGenerator::get_sphere_mesh(15, 15));
+         this->set_structure(MeshGenerator::get_sphere_mesh(10, 10));
          this->mesh->scale(this->radius, this->radius, this->radius); 
     }
 };
@@ -1593,7 +2133,7 @@ struct ModelObject : public RigidBody {
          Vec3f centroid = MeshGenerator::generate_bounding_box_centroid(structure);
          MeshStructure newStructure;
          for (auto &vertex : structure.vertices) {
-              newStructure.vertices.push_back(MeshVertex(Vec3f(vertex.Position).subtract(centroid), vertex.Normal));
+              newStructure.vertices.push_back(MeshVertex(Vec3f(vertex.Position).subtract(centroid), vertex.Normal, vertex.TextureCoords));
          }
          
          this->mesh->unuse_indices();
@@ -1646,8 +2186,9 @@ struct ElasticImpulseSolver : Solver {
                // Avoid updating if the objects have a very small collisison depth 
                if (manifold.points.depth < 0.00001f) continue;
                 
-               RigidBody *object1 = (RigidBody*) manifold.object1;
-               RigidBody *object2 = (RigidBody*) manifold.object2;
+               RigidBody *object1 = dynamic_cast<RigidBody*>(manifold.object1);
+               RigidBody *object2 = dynamic_cast<RigidBody*>(manifold.object2);
+               if (object1 == nullptr || object2 == nullptr) continue;
                
                Vec3f position1 = object1->transform->position;
                Vec3f position2 = object2->transform->position;
@@ -1674,60 +2215,118 @@ struct ElasticImpulseSolver : Solver {
      }
 };
 
-class PhysicsLevel {
-    std::vector<Object*> objects;
-    std::vector<Solver*> solvers;
-    std::vector<Manifold> manifolds;
-             
-    Vec3f gravity;
-    
-    int simulationSteps;
-    int lastIndex;
+class ObjectLevel {
     public:
-        static PhysicsLevel &get()
-        {
-             static PhysicsLevel ins;
-             return ins;
-        }
-        void load() {
-             objects.clear();
-             solvers.clear();
-             add_solver(new PositionSolver());
-             add_solver(new ElasticImpulseSolver());
-             
-             lastIndex = 0; 
-             simulationSteps = 5;
-             gravity = Vec3f(0.0f, -9.81f, 0.0f);
-        }
+        virtual void load() {}
+        virtual void update(float timeTook) {}
         
         void add_object(Object *body) {
              body->index = lastIndex;
              
              objects.push_back(body);
-             printf("%s\n", std::to_string(lastIndex).c_str());
              lastIndex++;
         }
         void remove_object(Object *body) {
              objects.erase(objects.begin() + body->index);
-             //delete body;
         }
         
         void add_solver(Solver *solver) {
              solvers.push_back(solver);
         }
         
-        void update(float timeTook) {
+        void send_collision_callbacks(const std::vector<Manifold> &collisions, float timeTook) {
+             for (auto &manifold : collisions) {
+                  auto &callback1 = manifold.object1->onCollision;
+                  auto &callback2 = manifold.object2->onCollision;
+                  
+                  if (callback1) callback1(manifold, timeTook);
+                  if (callback2) callback2(manifold, timeTook);
+             }
+        }
+        
+        void resolve_collisions(float timeTook) {
+             manifolds.clear();
+             triggers.clear();
+             
+             // Collision detection
+             for (auto &object1 : objects) {
+                  float temporaryDot = 0.0f;
+                  Vec3f normal;
+                  for (auto &object2 : objects) {
+                       if (object1->index == object2->index) break;
+                       if (!object1->collider || !object2->collider) continue;
+                       
+                       ManifoldPoints points = object1->collider->test(object1->transform, object2->collider, object2->transform);
+                       if (points.collided) {
+                            Manifold manifold = Manifold(object1, object2, points);
+                            bool trigger = object1->isTrigger || object2->isTrigger;
+                            
+                            // Calculate the "furthest" normal to the gravity vector.
+                            // This solves the issue of "sticky walls", where the player couldn't jump when touching a vertical wall near
+                            // a horizontal surface, for example.
+                            float dotProductGravity = Vec3f(points.normal).multiply(-1).dot(Vec3f(0.0f, -1.0f, 0.0f));
+                            if (dotProductGravity > temporaryDot) {
+                                normal = points.normal;
+                                temporaryDot = dotProductGravity;
+                            }
+                            
+                            object1->colliding = &manifold;
+                            object2->colliding = &manifold;
+                            
+                            object1->collidingNormal = normal;
+                            object2->collidingNormal = normal;
+                            
+                            if (trigger) triggers.emplace_back(manifold);
+                            else manifolds.emplace_back(manifold);
+                       }
+                  }
+             }
+             // Don't resolve collisions with triggers
+             for (auto &solver : solvers) {
+                  solver->solve(manifolds);
+             }
+             send_collision_callbacks(manifolds, timeTook);
+             send_collision_callbacks(triggers, timeTook);
+        }
+        
+        std::vector<Object*> &get_objects() { return objects; }
+        
+   protected:
+        std::vector<Object*> objects;
+        std::vector<Solver*> solvers;
+        std::vector<Manifold> manifolds, triggers;
+        
+        int lastIndex = 0;
+};
+
+class PhysicsLevel : public ObjectLevel {
+    public:
+        Vec3f gravity;
+        
+        void load() override {
+             objects.clear();
+             solvers.clear();
+             add_solver(new PositionSolver());
+             add_solver(new ElasticImpulseSolver());
+             
+             simulationSteps = 5;
+             gravity = Vec3f(0.0f, -9.81f, 0.0f);
+        }
+        
+        void update(float timeTook) override {
              float stepSize = timeTook / (float)simulationSteps;
              for (int i = 0; i < simulationSteps; i++) {
                   update_with_sub_steps(stepSize);
              }
         }
+        
         void update_with_sub_steps(float timeTook) {
-             resolve_collisions();
+             resolve_collisions(timeTook);
              
              // Reseting force and applying gravity
              for (auto &object : objects) {
-                  RigidBody *body = (RigidBody*)object;
+                  RigidBody *body = dynamic_cast<RigidBody*>(object);
+                  if (body == nullptr) continue;
                   
                   body->force.set_zero();
                   if (!body->immovable) {
@@ -1740,7 +2339,8 @@ class PhysicsLevel {
              
              // Euler's method
              for (auto &object : objects) {
-                  RigidBody *body = (RigidBody*)object;
+                  RigidBody *body = dynamic_cast<RigidBody*>(object);
+                  if (body == nullptr) continue;
                   
                   body->velocity.x += (body->force.x * timeTook) / body->mass;
                   body->velocity.y += (body->force.y * timeTook) / body->mass;
@@ -1751,92 +2351,165 @@ class PhysicsLevel {
                   body->transform->position.z += body->velocity.z * timeTook;
              }
         }
-        void resolve_collisions() {
-             manifolds.clear();
-             
-             // Collision detection
-             for (auto &object1 : objects) {
-                  for (auto &object2 : objects) {
-                       if (object1->index == object2->index) break;
-                       if (!object1->collider || !object2->collider) continue;
-                       
-                       ManifoldPoints points = object1->collider->test(object1->transform, object2->collider, object2->transform);
-                       if (points.collided) {
-                            Manifold manifold = Manifold(object1, object2, points);
-                            object1->colliding = &manifold;
-                            object2->colliding = &manifold;
-                            
-                            object1->collidingNormal = points.normal;
-                            object2->collidingNormal = points.normal;
-                            manifolds.emplace_back(manifold);
-                       }
-                  }
-             }
-             for (auto &solver : solvers) {
-                  solver->solve(manifolds);
-             }
-        }
-        std::vector<Object*> &get_objects() { return objects; }
-        Vec3f get_gravity() { return gravity; }
+        
     private:
-        PhysicsLevel() {}
-        ~PhysicsLevel() {}
-    public:
-        PhysicsLevel(PhysicsLevel const&) = delete;
-        void operator = (PhysicsLevel const&) = delete;    
+        int simulationSteps;
 };
 
 class Level {
     public:
+        bool completedLevel;
+        
         static Level &get()
         {
             static Level ins;
             return ins;
         }
         void load() {
-            objectShader = new Shader("object.vert", "object.frag");
+            std::vector<std::string> textures = {
+                 "resources/textures/side.png",
+                 "resources/textures/side.png",
+                 "resources/textures/top.png",
+                 "resources/textures/bottom.png",
+                 "resources/textures/side.png",
+                 "resources/textures/side.png"
+            };
+            
+            objectShader = new Shader("resources/shaders/object.vert", "resources/shaders/object.frag");
+            skyboxShader = new Shader("resources/shaders/skybox.vert", "resources/shaders/skybox.frag");
+            skybox = new Skybox(textures);
+            level.load();
+            this->start();
+        }
+        void start() {
+            level.get_objects().clear();
+            
+            ball = new SphereObject(0.35f);
+            ball->place(2.0f, 5.0f, 0.0f);
+            ball->set_material(Materials::aluminium);
+            level.add_object(ball);
+           
+            add_box(Vec3f(0.0f, -1.0f, 0.0f), 10.0f, 0.5f, 10.0f, "grass.png", Materials::grass);
+            add_box(Vec3f(-17.0f, -1.0f, 0.0f), 4.0f, 0.5f, 0.5f, "grass.png", Materials::grass);
+            add_box(Vec3f(-26.0f, -1.0f, 0.0f), 1.0f, 0.5f, 1.0f, "grass.png", Materials::grass);
+            add_box(Vec3f(-33.0f, -1.0f, 7.0f), Vec3f(0.0f, 1.0f, 0.0f), 5.0f, 0.5f, 0.5f, "grass.png", Materials::grass);
+            add_box(Vec3f(-43.0f, -1.0f, 17.0f), 5.0f, 0.5f, 5.0f, "grass.png", Materials::grass);
+            add_box(Vec3f(-43.0f, 1.5f, 17.0f), 2.0f, 2.0f, 2.0f, "wood.png", Materials::wood);
+            add_box(Vec3f(-46.0f, 0.5f, 17.0f), 1.0f, 1.0f, 1.0f, "wood.png", Materials::wood);
+            
+            Object *trigger = new Object(true);
+            trigger->place(-43.0f, 5.5f, 17.0f);
+            trigger->set_collider(new BoxCollider(1.5f, 2.0f, 1.5f));
+            trigger->on_collision([&](Manifold collision, float timeTook) {
+                 if (collision.object2 == ball) {
+                      completedLevel = true;
+                 }
+            });
+            trigger->set_trigger(true);
+            
+            level.add_object(trigger);
+            
+            for (auto &mesh : MeshGenerator::load_meshes_from_file("resources/objects/table.obj")) {
+                 ModelObject *model = new ModelObject(mesh);
+                
+                 model->set_immovable(true);
+                 model->place_offset(0.0f, 0.0f, 0.0f);
+                 model->set_material(Materials::wood);
+                 model->set_texture("resources/textures/wood.png");
+                 
+                 level.add_object(model);
+            }
+           
+            for (auto &mesh : MeshGenerator::load_meshes_from_file("resources/objects/chair.obj")) {
+                 ModelObject *model = new ModelObject(mesh);
+                
+                 model->set_immovable(true);
+                 model->place_offset(2.0f, 0.0f, 0.0f);
+                 model->set_material(Materials::wood);
+                 model->set_texture("resources/textures/wood.png");
+                 
+                 level.add_object(model);
+            }
+            
             a = 0.0f;
+            completedLevel = false;
         }
         
         void update(float timeTook) {
             a += timeTook;
-            PhysicsLevel::get().update(timeTook);
+            level.update(timeTook);
             /*
             if (a > 1.0f) {
                  float size = rand() % 50 / 150.0f + 0.1f;
                  SphereObject *sphere = new SphereObject(size);
-                 sphere->apply_velocity(rand() % 20 / 10.0f - 1.0f, 10.0f, rand() % 20 / 10.0f - 1.0f);
-                 sphere->place(17.0f, 20.0f, 0.0f);
+                 sphere->apply_velocity(0.1f, -10.0f, 0.0f);
+                 sphere->place(0.0f, 20.0f, 0.0f);
                  sphere->set_mass(size * 2.0f);
                  
                  sphere->set_material(rand() % 2 == 1 ? Materials::aluminium : Materials::gold);
                  
-                 PhysicsLevel::get().add_object(sphere);
+                 level.add_object(sphere);
                  a = 0.0f;
             }
             */
         }
         
         void render(Camera *camera) {
+            // Skybox
+            skyboxShader->use();
+            skyboxShader->set_uniform_mat4("view", camera->get_view());
+            skyboxShader->set_uniform_mat4("projection", camera->get_projection());
+            
+            skybox->render(skyboxShader);
+            
+            // Objects
             objectShader->use();
             objectShader->set_uniform_mat4("view", camera->get_view());
             objectShader->set_uniform_mat4("projection", camera->get_projection());
             objectShader->set_uniform_vec3f("viewPosition", camera->position.x, camera->position.y, camera->position.z);
         
          
-            for (auto &object : PhysicsLevel::get().get_objects()) {
+            for (auto &object : level.get_objects()) {
                  object->mesh->rotate(object->transform->rotation);
                  object->mesh->translate(object->transform->position);
                  
                  object->mesh->render(objectShader);
             }
+            
+            
         }
         void dispose() {
-            for (auto &object : PhysicsLevel::get().get_objects()) {
+            for (auto &object : level.get_objects()) {
                  object->mesh->dispose();
             }
+            skybox->dispose();
+            
             objectShader->clear();
+            skyboxShader->clear();
         }
+        void add_box(const Vec3f &position, float width, float height, float depth, const std::string &textureFile = "", const Material &material = Materials::defaultMaterial) {
+            BoxObject *box = new BoxObject(width, height, depth);
+            
+            box->set_immovable(true);
+            box->place(position.x, position.y, position.z);
+            if (textureFile.compare("")) box->set_texture("resources/textures/" + textureFile);
+            box->set_material(material);
+            
+            level.add_object(box);
+        }
+        void add_box(const Vec3f &position, const Vec3f &rotation, float width, float height, float depth, const std::string &textureFile = "", const Material &material = Materials::defaultMaterial) {
+            BoxObject *box = new BoxObject(width, height, depth);
+            
+            box->set_immovable(true);
+            box->place(position.x, position.y, position.z);
+            box->rotate(rotation.x, rotation.y, rotation.z);
+            if (textureFile.compare("")) box->set_texture("resources/textures/" + textureFile);
+            box->set_material(material);
+            
+            level.add_object(box);
+        }
+        SphereObject *get_ball() { return ball; }
+         
     private:
         Level() {}
         ~Level() {}
@@ -1845,7 +2518,13 @@ class Level {
         void operator = (Level const&) = delete; 
         
     protected:
-        Shader *objectShader; 
+        Shader *objectShader;
+        Shader *skyboxShader;
+        Skybox *skybox;
+        
+        PhysicsLevel level;
+        SphereObject *ball;
+        
         float a = 0.0f;
 };
 
@@ -1885,33 +2564,27 @@ class BallControls {
                 }
                 else if (click.y > h / 2 && click.x > w / 2) {
                     Vec3f back = v.multiply(-1);
-                    //camera->position.add(back);
                     ball->velocity.add(back);
                 }
             }
             if (ev.type == SDL_MOUSEBUTTONUP) {
-            //if (ev.type == SDL_MOUSEMOTION) {     
                 if (click.y > h / 1.3f) {
-                     jump();
+                     jump(Vec3f(0.0f, -1.0f, 0.0f));
                 }
             }
         }
-        void jump() {
+        void jump(const Vec3f &gravity) {
             if (!ball->has_collided()) return;
             
-            float strength = 5.0f;
+            float strength = 7.5f;
             
             Vec3f normal = ball->collidingNormal;
-            if (normal.dot(PhysicsLevel::get().get_gravity()) < 0) {
+            if (normal.dot(gravity) < 0) {
                  Vec3f offset = Vec3f(normal).multiply(0.1f);
                  Vec3f velocity = Vec3f(normal).multiply(strength);
                  
-                 RigidBody *colliding = (RigidBody*) ball->colliding->object2;
-                 //if (colliding->index == ball->index) colliding = (RigidBody*) ball->colliding->object1;
-                 
                  ball->transform->position.add(offset);
                  ball->velocity.add(Vec3f(velocity).multiply(1 / ball->mass));
-                 colliding->velocity.add(Vec3f(velocity).multiply(1 / colliding->mass));
                  
                  ball->colliding = 0;
             }
@@ -1946,70 +2619,59 @@ class Game
 class ExampleRenderingEngine : public Game {
     Camera *camera;
     BallControls *controls;
-    SphereObject *ball;
+    float completedTimer = 0.0f;
     public:  
        void init() override {
            displayName = "Example Rendering Engine";
        }
        void load() override {
-           Level::get().load();
            Materials::load();
-           PhysicsLevel::get().load();
-           
-           
-           ball = new SphereObject(0.35f);
-           ball->place(2.0f, 5.0f, 0.0f);
-           ball->set_material(Materials::aluminium);
-           PhysicsLevel::get().add_object(ball);
+           FreeType::get().load();
+           UIRenderer::load();
+           Level::get().load();
            
            camera = new Camera();
-           controls = new BallControls(camera, ball);
-           
-           BoxObject *ground = new BoxObject(10.0f, 0.5f, 10.0f);
-           ground->set_immovable(true);
-           ground->place(0.0f, -1.0f, 0.0f);
-           ground->set_texture("grass.png");
-           ground->set_material(Materials::grass);
-           
-           PhysicsLevel::get().add_object(ground);
-           
-           for (auto &mesh : MeshGenerator::load_meshes_from_file("table.obj")) {
-                ModelObject *model = new ModelObject(mesh);
-                
-                model->set_immovable(true);
-                model->place_offset(0.0f, 0.0f, 0.0f);
-                model->set_material(Materials::aluminium);
-                
-                PhysicsLevel::get().add_object(model);
-           }
-           
-           for (auto &mesh : MeshGenerator::load_meshes_from_file("chair.obj")) {
-                ModelObject *model = new ModelObject(mesh);
-                
-                model->set_immovable(true);
-                model->place_offset(2.0f, 0.0f, 0.0f);
-                model->set_material(Materials::aluminium);
-                
-                PhysicsLevel::get().add_object(model);
-           }
-           
+           controls = new BallControls(camera, Level::get().get_ball());
        }
        void handle_event(SDL_Event ev, float timeTook) override {
            controls->handle_event(ev, timeTook);
        }
        void update(float timeTook) override {
            float distance = 4.0f;
+           SphereObject *ball = Level::get().get_ball();
            
            Level::get().update(timeTook);
+           
            camera->lookingAt = Vec3f(ball->transform->position);
            camera->position = Vec3f(ball->transform->position).add(Vec3f(cos(camera->rotationX) * cos(camera->rotationY) * distance, sin(camera->rotationY) * distance, sin(camera->rotationX) * cos(camera->rotationY) * distance));
            camera->update();
            
+           if (Level::get().completedLevel) {
+                completedTimer += timeTook;
+                
+                float duration = 1.25f;
+                float clamp = std::max(0.0f, std::min(completedTimer / duration, 1.0f));
+                float alpha = (3.0 - clamp * 2.0) * clamp * clamp;
+                
+                Vec2f start = Vec2f(0.0f, 1.25f);
+                Vec2f end = Vec2f(0.0f, 0.25f);
+                Vec2f position = start.interpolate(end, alpha);
+                UIRenderer::draw_string_centered("Level complete!", position.x, position.y);
+                
+                if (completedTimer >= 5.0f) {
+                     Level::get().start();
+                     controls = new BallControls(camera, Level::get().get_ball());
+                     completedTimer = 0.0f;
+                }
+           }
+           
            Level::get().render(camera);
+           UIRenderer::render();
        }
        
        void dispose() {  
            Level::get().dispose();
+           UIRenderer::dispose();
        }
 };
 
@@ -2047,9 +2709,12 @@ int main()
     
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    
     
     glDepthFunc(GL_LESS);
     glCullFace(GL_FRONT);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     
     game.load();    
     
