@@ -5,4 +5,4 @@ The 3D version of [Aluminium](https://github.com/EmanuelG-Gaming/Aluminium).
 <sub>An earlier screenshot from V0.1.</sub>
 
 ![V0.15](screenshots/V0_15.jpg)
-<sub>First level, as of V0.15.</sub>
+<sub>The first level of V0.15.</sub>
