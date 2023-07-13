@@ -353,6 +353,65 @@ class Mat4x4 {
        }
 };
 
+struct Tensor3x3 {
+   public:
+       float values[3][3] = {{ 0 }};
+       Tensor3x3() {}
+       
+       Vec3f multiply(const Vec3f &with) {
+             Vec3f result;
+             
+             result.x = values[0][0] * with.x + values[1][0] * with.y + values[2][0] * with.z;
+             result.y = values[0][1] * with.x + values[1][1] * with.y + values[2][1] * with.z;
+             result.z = values[0][2] * with.x + values[1][2] * with.y + values[2][2] * with.z;
+             
+             return result;
+       }
+       
+       Tensor3x3 inverse() {
+             float determinant = det();
+             if (determinant == 0) {
+                  printf("Couldn't divide by the zero determinant of a singular tensor.");
+                  return identity();
+             }
+             
+             float inverseDeterminant = 1 / determinant;
+             float tmp[3][3];
+             
+             tmp[0][0] = values[1][1] * values[2][2] - values[2][1] * values[1][2];
+             tmp[1][0] = values[2][0] * values[1][2] - values[1][0] * values[2][2];
+             tmp[2][0] = values[1][0] * values[2][1] - values[2][0] * values[1][1];
+              
+             tmp[0][1] = values[2][1] * values[0][2] - values[0][1] * values[2][2];
+             tmp[1][1] = values[0][0] * values[2][2] - values[2][0] * values[0][2];
+             tmp[2][1] = values[2][0] * values[0][1] - values[0][0] * values[2][1];
+             
+             tmp[0][2] = values[0][1] * values[1][2] - values[1][1] * values[0][2];
+             tmp[1][2] = values[1][0] * values[0][2] - values[0][0] * values[1][2];
+             tmp[2][2] = values[0][0] * values[1][1] - values[1][0] * values[0][1];
+             
+             for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) {
+                  values[i][j] = inverseDeterminant * tmp[i][j];
+             }
+             
+             return *this;
+       }
+       Tensor3x3 identity() {
+             for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) {
+                  values[i][j] = 0.0f;
+             }
+             values[0][0] = 1.0f;
+             values[1][1] = 1.0f;
+             values[2][2] = 1.0f;
+             
+             return *this;
+       }
+       float det() {
+             return values[0][0] * values[1][1] * values[2][2] + values[0][1] * values[1][2] * values[2][0] + values[0][2] * values[1][0] * values[2][1] -
+                    values[0][0] * values[1][2] * values[2][1] - values[0][1] * values[1][0] * values[2][2] - values[0][2] * values[1][1] * values[2][0];
+       }
+};
+
 struct Quaternion {
     float w, x, y, z;
     Quaternion() {}
@@ -377,13 +436,17 @@ struct Quaternion {
     
     // Roll - X rotation; Pitch - Y rotation; Yaw - Z rotation
     Quaternion from_euler(float roll, float pitch, float yaw) {
+         float halfRoll = roll * 0.5f;
+         float halfPitch = pitch * 0.5f;
+         float halfYaw = yaw * 0.5f;
+         
          // Abbreviations
-         float cr = cos(roll * 0.5f);
-         float sr = sin(roll * 0.5f);
-         float cp = cos(pitch * 0.5f);
-         float sp = sin(pitch * 0.5f);
-         float cy = cos(yaw * 0.5f);
-         float sy = sin(yaw * 0.5f);
+         float cr = cos(halfRoll);
+         float sr = sin(halfRoll);
+         float cp = cos(halfPitch);
+         float sp = sin(halfPitch);
+         float cy = cos(halfYaw);
+         float sy = sin(halfYaw);
          
          Quaternion result;
          result.w = cr * cp * cy + sr * sp * sy;
@@ -463,6 +526,10 @@ struct Quaternion {
          w = newW;
          
          return *this;
+    }
+    
+    Quaternion multiply_left(const Quaternion &other) {
+         return multiply_left(other.x, other.y, other.z, other.w);
     }
 };
 
@@ -633,9 +700,9 @@ class Camera {
         Vec3f lookDirection;
         float rotationX;
         float rotationY;
-        bool useRotation;
+        bool useRotation = true;
         
-        Camera(float fov, float zNear, float zFar, float width, float height, bool perspective, bool useRotation) {
+        Camera(float fov, float zNear, float zFar, float width, float height, bool perspective) {
             position.set_zero();
             rotationX = rotationY = 0.0f;
             lookingAt = Vec3f(1.0f, 0.0f, 0.0f);
@@ -647,10 +714,9 @@ class Camera {
             this->zNear = zNear;
             this->zFar = zFar;
             this->perspective = perspective;
-            this->useRotation = useRotation;
         }
         
-        Camera() : Camera(90.0f, 0.1f, 1000.0f, float(SCREEN_WIDTH), float(SCREEN_HEIGHT), true, false) {
+        Camera() : Camera(90.0f, 0.1f, 1000.0f, float(SCREEN_WIDTH), float(SCREEN_HEIGHT), true) {
         }
         
         void update() {
@@ -876,10 +942,20 @@ struct MeshVertex {
     Vec3f Normal;
     Vec2f TextureCoords;
     
-    MeshVertex(Vec3f Position = Vec3f(0.0f, 0.0f, 0.0f), Vec3f Normal = Vec3f(0.0f, 0.0f, 0.0f), Vec2f TextureCoords = Vec2f(0.0f, 0.0f)) : Position(Position), Normal(Normal), TextureCoords(TextureCoords) {}
+    MeshVertex(Vec3f Position, Vec3f Normal, Vec2f TextureCoords) : Position(Position), Normal(Normal), TextureCoords(TextureCoords) {}
     MeshVertex(float x = 0.0f, float y = 0.0f, float z = 0.0f, float nx = 0.0f, float ny = 0.0f, float nz = 0.0f, float tx = 0.0f, float ty = 0.0f) : Position(x, y, z), Normal(nx, ny, nz), TextureCoords(tx, ty) {}
 };
-
+struct BatchVertex {
+    Vec3f Position;
+    Vec3f Normal;
+    Vec2f TextureCoords;
+    Vec3f Color;
+    
+    BatchVertex() {}
+    BatchVertex(Vec3f Position, Vec3f Normal, Vec2f TextureCoords) : Position(Position), Normal(Normal), TextureCoords(TextureCoords) {}
+    BatchVertex(float x, float y, float z, float nx, float ny, float nz, float tx, float ty, Vec3f color) : Position(x, y, z), Normal(nx, ny, nz), TextureCoords(tx, ty), Color(color) {}
+    BatchVertex(float x, float y, float z, Vec3f color) : Position(x, y, z), Normal(0, 0, 0), TextureCoords(0, 0), Color(color) {}
+};
 enum class TextureTypes {
     T2D = GL_TEXTURE_2D,
     TCube = GL_TEXTURE_CUBE_MAP,
@@ -1067,6 +1143,109 @@ class OverlayBatch {
        int vertexCapacity;
        int verticesUsed;
        OverlayVertex lastUsed;
+       
+       GLuint vbo;
+       GLuint vao;
+       Shader *shader;
+};
+
+class Batch {
+    public:
+       BatchType type;
+       Batch(int capacity, GLenum renderType, Shader *shader) {
+           this->vertexCapacity = capacity;
+           this->verticesUsed = 0;
+           this->vbo = this->vao = 0;
+         
+           this->type.renderType = renderType;
+           this->shader = shader;
+           
+           setup();
+       }
+       
+       void setup() {
+           glGenVertexArrays(1, &this->vao);
+           glBindVertexArray(this->vao);
+           
+           glGenBuffers(1, &this->vbo);
+           glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+           glBufferData(GL_ARRAY_BUFFER, this->vertexCapacity * sizeof(BatchVertex), nullptr, GL_STREAM_DRAW); 
+           
+           GLint position = 0;
+           glVertexAttribPointer(position, 3, GL_FLOAT, GL_FALSE, sizeof(BatchVertex), (void*) offsetof(BatchVertex, Position));
+           glEnableVertexAttribArray(position);
+           
+           GLint normal = 1;
+           glVertexAttribPointer(normal, 3, GL_FLOAT, GL_FALSE, sizeof(BatchVertex), (void*) offsetof(BatchVertex, Normal));
+           glEnableVertexAttribArray(normal);
+           
+           GLint textureCoords = 2;
+           glVertexAttribPointer(textureCoords, 2, GL_FLOAT, GL_FALSE, sizeof(BatchVertex), (void*) offsetof(BatchVertex, TextureCoords));
+           glEnableVertexAttribArray(textureCoords);
+           
+           GLint color = 3;
+           glVertexAttribPointer(color, 3, GL_FLOAT, GL_FALSE, sizeof(BatchVertex), (void*) offsetof(BatchVertex, Color));
+           glEnableVertexAttribArray(color);
+           
+           glBindVertexArray(0);
+           glDisableVertexAttribArray(position);
+           glDisableVertexAttribArray(normal);
+           glDisableVertexAttribArray(textureCoords);
+           glDisableVertexAttribArray(color);
+           glBindBuffer(GL_ARRAY_BUFFER, 0);
+       }
+       
+       void add(const std::vector<BatchVertex> &vertices) {
+           int extra = this->get_extra_vertices();
+           if (vertices.size() + extra > vertexCapacity - verticesUsed) {
+               return;
+           }
+           if (vertices.empty()) {
+               return;
+           }
+           if (vertices.size() > vertexCapacity) {
+               return;
+           }
+           
+           glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+           if (extra > 0) {
+               glBufferSubData(GL_ARRAY_BUFFER, (verticesUsed + 0) * sizeof(BatchVertex), sizeof(BatchVertex), &lastUsed);
+               glBufferSubData(GL_ARRAY_BUFFER, (verticesUsed + 1) * sizeof(BatchVertex), sizeof(BatchVertex), &vertices[0]);
+           }
+           glBufferSubData(GL_ARRAY_BUFFER, verticesUsed * sizeof(BatchVertex), vertices.size() * sizeof(BatchVertex), &vertices[0]);
+            
+           glBindBuffer(GL_ARRAY_BUFFER, 0);
+           verticesUsed += vertices.size() + extra;
+           lastUsed = vertices.back();
+       }
+       
+       void render() {
+           if (verticesUsed == 0) {
+               return;
+           }
+           glBindVertexArray(this->vao);
+           glDrawArrays(this->type.renderType, 0, verticesUsed);
+           
+           this->verticesUsed = 0;
+       }
+       
+       
+       int get_extra_vertices() {
+           bool mode = (this->type.renderType == GL_TRIANGLE_STRIP && verticesUsed > 0);
+           return mode ? 2 : 0;
+       }
+       void dispose() {
+           if (this->vbo) {
+               glDeleteBuffers(1, &this->vbo);
+           }
+           if (this->vao) {
+               glDeleteBuffers(1, &this->vao);
+           }
+       }
+    protected:
+       int vertexCapacity;
+       int verticesUsed;
+       BatchVertex lastUsed;
        
        GLuint vbo;
        GLuint vao;
@@ -1365,38 +1544,38 @@ namespace Materials {
 };
 
 namespace MeshGenerator {
-    MeshStructure get_sphere_mesh(int latitudeLines, int longitudeLines) {
-         std::vector<MeshVertex> vertices;
-         std::vector<GLuint> indices;
-          
-         float latitudeSpacing = M_PI / latitudeLines;
-         float longitudeSpacing = 2 * M_PI / longitudeLines;
-         
-         // Vertices
-         for (int i = 0; i <= latitudeLines; i++) {
-              for (int j = 0; j <= longitudeLines; j++) {
-                   // Horizontal rotation
-                   float theta = j * longitudeSpacing;
-                   // Vertical rotation
-                   float phi = M_PI / 2.0f - i * latitudeSpacing;
-                    
-                   Vec3f position = Vec3f(0.0f, 0.0f, 0.0f), normal = Vec3f(0.0f, 0.0f, 0.0f);
-                   Vec2f textureCoords = Vec2f(0.0f, 0.0f);
-                    
-                   position.x = cos(phi) * cos(theta);
-                   position.y = cos(phi) * sin(theta);
-                   position.z = sin(phi);
-                    
-                   normal = Vec3f(position);
-                   textureCoords.x = 0.5f + atan2(position.z, position.x) / (2 * M_PI);
-                   textureCoords.y = 0.5f + asin(position.y) / M_PI;
-                   
-                    
-                   MeshVertex vertex = MeshVertex(position, normal, textureCoords);
-                   vertices.push_back(vertex);
-              }
-         }
-         
+        MeshStructure get_sphere_mesh(int latitudeLines, int longitudeLines) {
+             std::vector<MeshVertex> vertices;
+             std::vector<GLuint> indices;
+              
+             float latitudeSpacing = M_PI / latitudeLines;
+             float longitudeSpacing = 2 * M_PI / longitudeLines;
+             
+             // Vertices
+             for (int i = 0; i <= latitudeLines; i++) {
+                  for (int j = 0; j <= longitudeLines; j++) {
+                       // Horizontal rotation
+                       float theta = j * longitudeSpacing;
+                       // Vertical rotation
+                       float phi = M_PI * 0.5f - i * latitudeSpacing;
+                        
+                       Vec3f position = Vec3f(0.0f, 0.0f, 0.0f), normal = Vec3f(0.0f, 0.0f, 0.0f);
+                       Vec2f textureCoords = Vec2f(0.0f, 0.0f);
+                        
+                       position.x = cos(phi) * cos(theta);
+                       position.y = cos(phi) * sin(theta);
+                       position.z = sin(phi);
+                        
+                       normal = Vec3f(position);
+                       textureCoords.x = 0.5f + atan2(position.z, position.x) / (2 * M_PI);
+                       textureCoords.y = 0.5f + asin(position.y) / M_PI;
+                       
+                        
+                       MeshVertex vertex = MeshVertex(position, normal, textureCoords);
+                       vertices.push_back(vertex);
+                  }
+             }
+             
          // Indices
          int k1, k2;
          for (int i = 0; i < latitudeLines; i++) {
@@ -1492,16 +1671,6 @@ namespace MeshGenerator {
          return MeshStructure(vertices, indices);
      }
      
-     bool compare(std::string first, std::string other) {
-         return !first.compare(other);
-     }
-     bool is_line_empty(std::string line) {
-         bool empty = compare(line, "") ||
-                      compare(line, " ");
-                          
-         return empty;
-     }
-     
      void load_from_files(Mesh *source, const std::string &objName, const std::string &mtlName) {
          std::ifstream objRead(objName);
          std::vector<Vec3f> positions, normals;
@@ -1515,7 +1684,7 @@ namespace MeshGenerator {
        
          std::string line; 
          while (std::getline(objRead, line)) {
-              if (is_line_empty(line)) {
+              if (!line.compare("") || !line.compare(" ")) {
                   continue;
               }
               
@@ -1524,28 +1693,28 @@ namespace MeshGenerator {
               stream >> key;
               
               // Vertex position
-              if (compare(key, "v")) {
+              if (!key.compare("v")) {
                   Vec3f position;
                   stream >> position.x >> position.y >> position.z;
                   
                   positions.push_back(position);
               }
               // Vertex normal
-              else if (compare(key, "vn")) {
+              else if (!key.compare("vn")) {
                   Vec3f normal;
                   stream >> normal.x >> normal.y >> normal.z;
                   
                   normals.push_back(normal);
               }
               // Vertex texture coordinates
-              else if (compare(key, "vt")) {
+              else if (!key.compare("vt")) {
                   Vec2f coords;
                   stream >> coords.x >> coords.y;
                   
                   textureCoordinates.push_back(coords);
               }
               // Face indices
-              else if (compare(key, "f")) {
+              else if (!key.compare("f")) {
                   std::string faceIndices[3];
                   stream >> faceIndices[0] >> faceIndices[1] >> faceIndices[2];
                   
@@ -1592,7 +1761,7 @@ namespace MeshGenerator {
        
          std::string line; 
          while (std::getline(objRead, line)) {
-              if (is_line_empty(line)) {
+              if (!line.compare("") || !line.compare(" ")) {
                   continue;
               }
               
@@ -1601,28 +1770,28 @@ namespace MeshGenerator {
               stream >> key;
               
               // Vertex position
-              if (compare(key, "v")) {
+              if (!key.compare("v")) {
                   Vec3f position;
                   stream >> position.x >> position.y >> position.z;
                   
                   positions.push_back(position);
               }
               // Vertex normal
-              else if (compare(key, "vn")) {
+              else if (!key.compare("vn")) {
                   Vec3f normal;
                   stream >> normal.x >> normal.y >> normal.z;
                   
                   normals.push_back(normal);
               }
               // Vertex texture coordinates
-              else if (compare(key, "vt")) {
+              else if (!key.compare("vt")) {
                   Vec2f coords;
                   stream >> coords.x >> coords.y;
                   
                   textureCoordinates.push_back(coords);
               }
               // Face indices
-              else if (compare(key, "f")) {
+              else if (!key.compare("f")) {
                   std::string faceIndices[3];
                   stream >> faceIndices[0] >> faceIndices[1] >> faceIndices[2];
                   
@@ -1638,7 +1807,7 @@ namespace MeshGenerator {
               }
               
               // Build mesh
-              if (compare(key, "g")) {
+              if (!key.compare("g")) {
                   MeshStructure structure;
                   for (int i = 0; i < vertexIndices.size(); i++) {
                        GLuint indexPosition = vertexIndices.at(i);
@@ -1735,7 +1904,6 @@ namespace UIRenderer {
      Shader *overlayShader;
      OverlayBatch *batch;
      TextAtlas *textAtlas;
-     
      void load() {
            overlayShader = new Shader("resources/shaders/overlay.vert", "resources/shaders/overlay.frag"); 
            batch = new OverlayBatch(4096, GL_TRIANGLES, overlayShader);
@@ -1757,11 +1925,45 @@ namespace UIRenderer {
            batch->dispose();
      }
      
-     void draw_string_centered(const std::string &text, float x, float y, float sclX = 1.0f, float sclY = 1.0f, Vec3f color = Vec3f(1.0f, 1.0f, 1.0f)) {
+     void draw_string_itself(const std::string &text, float x, float y, float sclX, float sclY, const Vec3f &color) {
            std::vector<OverlayVertex> vertices;
-           float scaleX = sclX * 0.002f;
-           float scaleY = sclY * 0.002f;
-            
+             
+           float px = x;
+           float py = y;
+           std::string::const_iterator iterator;
+           for (iterator = text.begin(); iterator != text.end(); iterator++) {
+                CharacterInfo ch = textAtlas->get_characters().at(*iterator);
+                   
+                float x2 = px + ch.bitmapLeft * sclX;
+                float y2 = -py - ch.bitmapTop * sclY;
+                float width = ch.bitmapWidth * sclX;
+                float height = ch.bitmapHeight * sclY;
+                   
+                px += ch.advX * sclX;
+                py += ch.advY * sclY;
+                   
+                   
+                vertices.push_back(OverlayVertex(x2, -y2, ch.offsetX, 0, color));
+                vertices.push_back(OverlayVertex(x2 + width, -y2, ch.offsetX + ch.bitmapWidth / textAtlas->get_width(), 0, color));
+                vertices.push_back(OverlayVertex(x2, -y2 - height, ch.offsetX, ch.bitmapHeight / textAtlas->get_height(), color));
+                   
+                vertices.push_back(OverlayVertex(x2 + width, -y2, ch.offsetX + ch.bitmapWidth / textAtlas->get_width(), 0, color));
+                vertices.push_back(OverlayVertex(x2 + width, -y2 - height, ch.offsetX + ch.bitmapWidth / textAtlas->get_width(), ch.bitmapHeight / textAtlas->get_height(), color));
+                vertices.push_back(OverlayVertex(x2, -y2 - height, ch.offsetX, ch.bitmapHeight / textAtlas->get_height(), color));
+           }
+              
+           batch->add(vertices);
+     }
+     void draw_string(const std::string &text, float x, float y, float scaleX = 1.0f, float scaleY = 1.0f, const Vec3f &color = Vec3f(1.0f, 1.0f, 1.0f)) {
+           float sclX = scaleX * 0.002f;
+           float sclY = scaleY * 0.002f;
+           
+           draw_string_itself(text, x, y, sclX, sclY, color);
+     }
+     void draw_string_centered(const std::string &text, float x, float y, float scaleX = 1.0f, float scaleY = 1.0f, const Vec3f &color = Vec3f(1.0f, 1.0f, 1.0f)) {
+           float sclX = scaleX * 0.002f;
+           float sclY = scaleY * 0.002f;
+           
            float w = 0.0f;
            float h = 0.0f;
            std::string::const_iterator iterator;
@@ -1779,41 +1981,126 @@ namespace UIRenderer {
                 w -= (ch.advX - (ch.bitmapLeft + ch.bitmapWidth));
            }
            
-           w *= scaleX;
-           h *= scaleY;
+           w *= sclX;
+           h *= sclY;
            
            
            float px = x - w / 2.0f;
            float py = y - h / 2.0f;
-           for (iterator = text.begin(); iterator != text.end(); iterator++) {
-                CharacterInfo ch = textAtlas->get_characters().at(*iterator);
-                   
-                float x2 = px + ch.bitmapLeft * scaleX;
-                float y2 = -py - ch.bitmapTop * scaleY;
-                float width = ch.bitmapWidth * scaleX;
-                float height = ch.bitmapHeight * scaleY;
-                   
-                px += ch.advX * scaleX;
-                py += ch.advY * scaleY;
-                   
-                   
-                vertices.push_back(OverlayVertex(x2, -y2, ch.offsetX, 0, color));
-                vertices.push_back(OverlayVertex(x2 + width, -y2, ch.offsetX + ch.bitmapWidth / textAtlas->get_width(), 0, color));
-                vertices.push_back(OverlayVertex(x2, -y2 - height, ch.offsetX, ch.bitmapHeight / textAtlas->get_height(), color));
-                   
-                vertices.push_back(OverlayVertex(x2 + width, -y2, ch.offsetX + ch.bitmapWidth / textAtlas->get_width(), 0, color));
-                vertices.push_back(OverlayVertex(x2 + width, -y2 - height, ch.offsetX + ch.bitmapWidth / textAtlas->get_width(), ch.bitmapHeight / textAtlas->get_height(), color));
-                vertices.push_back(OverlayVertex(x2, -y2 - height, ch.offsetX, ch.bitmapHeight / textAtlas->get_height(), color));
-           }
-              
-           batch->add(vertices);
+           draw_string_itself(text, px, py, sclX, sclY, color);
      }
+};
+namespace BatchRenderer {
+     Shader *shader;
+     Batch *lineBatch;
+     std::vector<Vec3f> sphereVertices;
+     void load() {
+           shader = new Shader("resources/shaders/batch.vert", "resources/shaders/batch.frag");      
+           lineBatch = new Batch(40960, GL_LINES, shader);
+           
+           MeshStructure sphere = MeshGenerator::get_sphere_mesh(8, 8);
+           for (auto &index : sphere.indices) {
+                Vec3f position = sphere.vertices.at(index).Position;
+                
+                sphereVertices.push_back(position);
+           }
+     }
+     void render(Camera *camera) {
+           Mat4x4 model;
+           
+           shader->use();
+           shader->set_uniform_mat4("model", model);
+           shader->set_uniform_mat4("view", camera->get_view());
+           shader->set_uniform_mat4("projection", camera->get_projection());
+            
+           lineBatch->render();
+     }
+   
+     void dispose() {
+           lineBatch->dispose();
+     }
+     
+     void draw_spring(float x1, float y1, float z1, float x2, float y2, float z2, const Vec3f &color = Vec3f(1.0f, 1.0f, 1.0f)) {
+           std::vector<BatchVertex> vertices = {
+                BatchVertex(x1, y1, z1, color),
+                BatchVertex(x2, y2, z2, color)
+           };
+           
+           lineBatch->add(vertices);
+     }
+     void draw_box_outline(float x, float y, float z, float width, float height, float depth, Quaternion rotation, const Vec3f &color = Vec3f(1.0f, 1.0f, 1.0f)) {
+           std::vector<BatchVertex> vertices = {
+                BatchVertex(-1.0, -1.0, -1.0, color),
+                BatchVertex(1.0, -1.0, -1.0, color),
+                BatchVertex(-1.0, 1.0, -1.0, color),
+                BatchVertex(1.0, 1.0, -1.0, color),
+            
+                BatchVertex(-1.0, -1.0, 1.0, color),
+                BatchVertex(1.0, -1.0, 1.0, color),
+                BatchVertex(-1.0, 1.0, 1.0, color),
+                BatchVertex(1.0, 1.0, 1.0, color),
+            
+                BatchVertex(-1.0, -1.0, -1.0, color),
+                BatchVertex(-1.0, 1.0, -1.0, color),
+                BatchVertex(1.0, -1.0, -1.0, color),
+                BatchVertex(1.0, 1.0, -1.0, color),
+            
+                BatchVertex(-1.0, -1.0, 1.0, color),
+                BatchVertex(-1.0, 1.0, 1.0, color),
+                BatchVertex(1.0, 1.0, 1.0, color),
+                BatchVertex(1.0, -1.0, 1.0, color),
+            
+                BatchVertex(-1.0, -1.0, -1.0, color),
+                BatchVertex(-1.0, -1.0, 1.0, color),
+                BatchVertex(1.0, -1.0, -1.0, color),
+                BatchVertex(1.0, -1.0, 1.0, color),
+            
+                BatchVertex(-1.0, 1.0, -1.0, color),
+                BatchVertex(-1.0, 1.0, 1.0, color),
+                BatchVertex(1.0, 1.0, -1.0, color),
+                BatchVertex(1.0, 1.0, 1.0, color)
+           };
+           for (auto &vertex : vertices) {
+                vertex.Position.x *= width;
+                vertex.Position.y *= height;
+                vertex.Position.z *= depth;
+                
+                vertex.Position = rotation.transform(vertex.Position);
+                
+                vertex.Position.x += x;
+                vertex.Position.y += y;
+                vertex.Position.z += z;
+           }
+           
+           lineBatch->add(vertices);
+     }
+     void draw_sphere_outline(float x, float y, float z, float radius, const Vec3f &color = Vec3f(1.0f, 1.0f, 1.0f)) {
+           std::vector<BatchVertex> vertices;
+           
+           for (auto &position : sphereVertices) {
+                Vec3f p = Vec3f(position);
+                p.x *= radius;
+                p.y *= radius;
+                p.z *= radius;
+                
+                p.x += x;
+                p.y += y;
+                p.z += z;
+                
+                BatchVertex vertex = BatchVertex(p.x, p.y, p.z, color);
+                vertices.push_back(vertex);
+           }
+           
+           lineBatch->add(vertices); 
+     }
+                       
 };
 
 // ----- Physics -----
 static struct Collider;
 static struct SphereCollider;
 static struct BoxCollider;
+static struct ColliderGroup;
 
 static struct Manifold;
 
@@ -1853,6 +2140,7 @@ namespace CollisionDetection {
      ManifoldPoints sphere_sphere(SphereCollider *sphere, Transform *transform, SphereCollider *other, Transform *otherTransform);
      ManifoldPoints sphere_AABB(SphereCollider *sphere, Transform *transform, BoxCollider *other, Transform *otherTransform);
      ManifoldPoints sphere_OBB(SphereCollider *sphere, Transform *transform, BoxCollider *other, Transform *otherTransform);
+     
 };
 
 struct Collider {
@@ -1860,8 +2148,8 @@ struct Collider {
      virtual ManifoldPoints test(Transform *transform, Collider *collider, Transform *otherTransform) = 0;
      // Collider-sphere
      virtual ManifoldPoints test(Transform *transform, SphereCollider *sphereCollider, Transform *otherTransform) = 0;
-     // Collider-AABB
-     virtual ManifoldPoints test(Transform *transform, BoxCollider *aabbCollider, Transform *otherTransform)  = 0;
+     // Collider-box
+     virtual ManifoldPoints test(Transform *transform, BoxCollider *boxCollider, Transform *otherTransform) = 0;
 };
 
 struct SphereCollider : Collider {
@@ -1889,11 +2177,11 @@ struct BoxCollider : Collider {
      BoxCollider(float width, float height, float depth) : width(width), height(height), depth(depth) {}
      BoxCollider(Vec3f size) : width(size.x), height(size.y), depth(size.z) {}
      
-     // AABB-collider
+     // Box-collider
      ManifoldPoints test(Transform *transform, Collider *collider, Transform *otherTransform) override { 
            return collider->test(otherTransform, this, transform); 
      }
-     // AABB-sphere
+     // Box-sphere
      ManifoldPoints test(Transform *transform, SphereCollider *sphereCollider, Transform *otherTransform) override { 
            // Reuse sphere code
            ManifoldPoints points = sphereCollider->test(otherTransform, this, transform);
@@ -1906,11 +2194,12 @@ struct BoxCollider : Collider {
            
            return points;
      }
-     // No AABB-AABB
+     // No Box-box
      ManifoldPoints test(Transform *transform, BoxCollider *aabbCollider, Transform *otherTransform) override { 
            return ManifoldPoints();
      }
-     
+    
+        
      bool contains_point(Transform *transform, const Vec3f &point) {
            return (point.x >= transform->position.x - width && point.x <= transform->position.x + width) &&
                   (point.y >= transform->position.y - height && point.y <= transform->position.y + height) &&
@@ -1918,6 +2207,32 @@ struct BoxCollider : Collider {
      }
 };
 
+struct ColliderGroup : Collider {
+     std::vector<std::pair<Collider*, Transform*>> colliders;
+     
+     ColliderGroup() {}
+     
+     // Group-collider
+     ManifoldPoints test(Transform *transform, Collider *collider, Transform *otherTransform) override {
+          return collider->test(otherTransform, this, transform); 
+     }
+     
+     // Group-sphere
+     ManifoldPoints test(Transform *transform, SphereCollider *sphereCollider, Transform *otherTransform) {
+          return ManifoldPoints();
+     }
+     
+     // Group-box
+     ManifoldPoints test(Transform *transform, BoxCollider *boxCollider, Transform *otherTransform) override {
+          return ManifoldPoints();
+     }
+     
+     
+
+     void append(Collider *collider, Transform *location) {
+          colliders.emplace_back(std::make_pair(collider, location));
+     }
+};
 
 namespace CollisionDetection {
      ManifoldPoints sphere_sphere(SphereCollider *sphere, Transform *transform, SphereCollider *other, Transform *otherTransform) {
@@ -2001,8 +2316,9 @@ namespace CollisionDetection {
 struct Object {
     Transform *transform;
     Collider *collider = 0;
-    Manifold *colliding = 0;
     Vec3f collidingNormal = Vec3f(0.0f, 0.0f, 0.0f);
+    ManifoldPoints lastManifoldPoints;
+    Object *collidingObject = 0;
     std::function<void(Manifold, float)> onCollision;
     
     int index = 0;
@@ -2059,17 +2375,26 @@ struct Object {
         this->onCollision = collision;
     }
     
-    bool has_collided() { return (colliding); }
+    bool has_collided() { return (collidingObject); }
 };
 
 struct RigidBody : public Object {
     Vec3f velocity;
     Vec3f force;
+    
+    Vec3f angularVelocity;
+    Vec3f torque;
+    Vec3f inertiaParameters;
     float mass = 1.0f;
+    float restitution = 0.5f;
+    Tensor3x3 inertia;
+    Tensor3x3 inverseInertia;
     
     RigidBody() : Object() {
           velocity = Vec3f(0.0f, 0.0f, 0.0f);
           force = Vec3f(0.0f, 0.0f, 0.0f);
+          torque = Vec3f(0.0f, 0.0f, 0.0f);
+          inertiaParameters = Vec3f(1.0f, 1.0f, 1.0f);
     }
     RigidBody(bool immovable) : RigidBody() {
          this->immovable = immovable;
@@ -2085,8 +2410,36 @@ struct RigidBody : public Object {
          force.y += y;
          force.z += z;
     }
+    void apply_instant_torque(const Vec3f &location, const Vec3f &direction) {
+         Vec3f gradient = Vec3f(transform->position).subtract(location);
+         Vec3f amount = gradient.crs(direction);
+         
+         torque.x += amount.x;
+         torque.y += amount.y;
+         torque.z += amount.z;
+    }
+        
     void set_mass(float newMass) {
          mass = newMass;
+    }
+    void set_restitution(float newRestitution) {
+         restitution = newRestitution;
+    }
+    void set_inertia_params(float x, float y, float z) {
+         inertiaParameters.x = x;
+         inertiaParameters.y = y;
+         inertiaParameters.z = z;
+    }
+    void calculate_inertia_tensor(float x, float y, float z) {
+         if (x == 0 || y == 0 || z == 0) {
+              inertia.identity();
+              return;
+         }
+         inertia.values[0][0] = mass * (y*y + z*z);
+         inertia.values[1][1] = mass * (x*x + z*z);
+         inertia.values[2][2] = mass * (x*x + y*y);
+         
+         inverseInertia = Tensor3x3(inertia).inverse();
     }
 };
 struct SphereObject : public RigidBody {
@@ -2126,20 +2479,20 @@ struct BoxObject : public RigidBody {
 struct ModelObject : public RigidBody {
     ModelObject() : RigidBody() {}
     ModelObject(const std::string &objFile) : RigidBody() {
-         MeshGenerator::load_from_files(this->mesh, objFile, ""); // No material file
-         this->collider = new BoxCollider(MeshGenerator::generate_bounding_box_sizes(this->mesh->get_structure()));
-    }
-    ModelObject(const MeshStructure &structure) : RigidBody() {
-         Vec3f centroid = MeshGenerator::generate_bounding_box_centroid(structure);
-         MeshStructure newStructure;
-         for (auto &vertex : structure.vertices) {
-              newStructure.vertices.push_back(MeshVertex(Vec3f(vertex.Position).subtract(centroid), vertex.Normal, vertex.TextureCoords));
+         this->collider = new ColliderGroup();
+         
+         for (auto &mesh : MeshGenerator::load_meshes_from_file(objFile)) {
+              Vec3f centroid = MeshGenerator::generate_bounding_box_centroid(mesh);
+              
+              Transform *meshTransform = new Transform();
+              meshTransform->position = Vec3f(centroid);
+              BoxCollider *meshCollider = new BoxCollider(MeshGenerator::generate_bounding_box_sizes(mesh));
+              
+              ColliderGroup *group = (ColliderGroup*) this->collider; 
+              group->append(meshCollider, meshTransform);
          }
          
-         this->mesh->unuse_indices();
-         this->mesh->set_structure(newStructure);
-         this->collider = new BoxCollider(MeshGenerator::generate_bounding_box_sizes(structure));
-         this->place(centroid);
+         MeshGenerator::load_from_files(this->mesh, objFile, "");
     }
 };
 
@@ -2151,10 +2504,10 @@ struct Manifold {
      Manifold(Object *object1, Object *object2, ManifoldPoints points) : object1(object1), object2(object2), points(points) {}
 };
 struct Solver {
-     virtual void solve(std::vector<Manifold> &manifolds) {};
+     virtual void solve(const std::vector<Manifold> &manifolds) {};
 };
 struct PositionSolver : Solver {
-     void solve(std::vector<Manifold> &manifolds) override {
+     void solve(const std::vector<Manifold> &manifolds) override {
            for (auto &manifold : manifolds) {
                 // Avoid updating if the objects have a very small collisison depth
                 if (manifold.points.depth < 0.00001f) continue;
@@ -2165,7 +2518,7 @@ struct PositionSolver : Solver {
                 int immovable1 = (int)object1->immovable;
                 int immovable2 = (int)object2->immovable;
                 
-                Vec3f normal = manifold.points.normal; //Vec3f(manifold.points.BtoA).subtract(manifold.points.AtoB);
+                Vec3f normal = manifold.points.normal;
                 Vec3f displacement = Vec3f(normal).multiply(1 / (float)std::max(1, immovable1 + immovable2));
                 displacement = displacement.multiply(manifold.points.depth);
                 displacement = displacement.multiply(0.5f);
@@ -2181,7 +2534,7 @@ struct PositionSolver : Solver {
      }
 };
 struct ElasticImpulseSolver : Solver {
-     void solve(std::vector<Manifold> &manifolds) override {
+     void solve(const std::vector<Manifold> &manifolds) override {
            for (auto &manifold : manifolds) {
                // Avoid updating if the objects have a very small collisison depth 
                if (manifold.points.depth < 0.00001f) continue;
@@ -2193,25 +2546,134 @@ struct ElasticImpulseSolver : Solver {
                Vec3f position1 = object1->transform->position;
                Vec3f position2 = object2->transform->position;
                
-               Vec3f normal = manifold.points.normal; //Vec3f(position2).subtract(position1).nor();
-               Vec3f gradientVelocity = Vec3f(object1->velocity).subtract(object2->velocity);
-                          
-               float dot = normal.dot(gradientVelocity);
-               float j = 2 * dot / (object1->mass + object2->mass);
-                
-                
-               if (!object1->immovable) {   
-                    object1->velocity.x -= j * normal.x * object2->mass;
-                    object1->velocity.y -= j * normal.y * object2->mass;
-                    object1->velocity.z -= j * normal.z * object2->mass;
-               }
+               Vec3f normal = manifold.points.normal;
+               Vec3f r1 = Vec3f(object1->transform->position).subtract(manifold.points.AtoB);
+               Vec3f r2 = Vec3f(object2->transform->position).subtract(manifold.points.BtoA);
                
-               if (!object2->immovable) {                   
-                    object2->velocity.x += j * normal.x * object1->mass;
-                    object2->velocity.y += j * normal.y * object1->mass;
-                    object2->velocity.z += j * normal.z * object1->mass;
+               Vec3f v1 = Vec3f(object1->velocity).add(r1.crs(object1->angularVelocity));
+               Vec3f v2 = Vec3f(object2->velocity).add(r2.crs(object2->angularVelocity));
+               Vec3f gradientVelocity = Vec3f(v1).subtract(v2);
+               
+               Vec3f cp1 = (r1.crs(normal)).crs(r1);
+               Vec3f cp2 = (r2.crs(normal)).crs(r2);
+               Vec3f inertia1 = object1->inverseInertia.multiply(cp1);
+               Vec3f inertia2 = object2->inverseInertia.multiply(cp2);
+                       
+               float dot = normal.dot(gradientVelocity);
+               float dotInertia1 = normal.dot(inertia1);
+               float dotInertia2 = normal.dot(inertia2);
+               float restitution = object1->restitution + object2->restitution;
+               float j = (1 + restitution) * dot / ((object1->mass + object2->mass) + dotInertia1 + dotInertia2);
+                
+               
+               if (!object1->immovable) {
+                   object1->velocity.x -= j * normal.x * object2->mass;
+                   object1->velocity.y -= j * normal.y * object2->mass;
+                   object1->velocity.z -= j * normal.z * object2->mass;
+                   
+                   Vec3f direction = Vec3f(normal).multiply(j);
+                   object1->apply_instant_torque(manifold.points.AtoB, direction);
+               }
+               if (!object2->immovable) {
+                   object2->velocity.x += j * normal.x * object1->mass;
+                   object2->velocity.y += j * normal.y * object1->mass;
+                   object2->velocity.z += j * normal.z * object1->mass;
+                   
+                   Vec3f direction = Vec3f(normal).multiply(-j);
+                   object2->apply_instant_torque(manifold.points.BtoA, direction);
                }
           }
+     }
+};
+struct ForceGenerator {
+     virtual void apply(RigidBody *object, float timeTook) {};
+};
+struct GravityForce : ForceGenerator {
+     Vec3f force;
+     
+     GravityForce(Vec3f force) : force(force) {}
+     void apply(RigidBody *object, float timeTook) override {
+          Vec3f acceleration = Vec3f(object->velocity).multiply(-1).add(force);
+          float mass = object->mass;
+          
+          object->force.x += acceleration.x * mass;
+          object->force.y += acceleration.y * mass;
+          object->force.z += acceleration.z * mass;
+     }
+};
+
+struct WindForce : ForceGenerator {
+     Vec3f direction;
+     float strength;
+     
+     WindForce(Vec3f direction, float strength) : direction(direction), strength(strength) {
+          this->direction.nor();
+     }
+     void apply(RigidBody *object, float timeTook) override {
+          Vec3f force = Vec3f(direction).multiply(strength);
+          
+          object->force.x += force.x * timeTook;
+          object->force.y += force.y * timeTook;
+          object->force.z += force.z * timeTook;
+     }
+};
+
+
+struct Constraint {
+     virtual void apply() {};
+     virtual void render() {};
+};
+struct SpringConstraint : Constraint {
+     RigidBody *object1 = nullptr, *object2 = nullptr;
+     
+     float damping;
+     float stiffness;
+     float restLength;
+     
+     SpringConstraint(float restLength, float damping, float stiffness) : restLength(restLength), damping(damping), stiffness(stiffness) {}
+     
+     void apply() override {
+          if (object1 == nullptr || object2 == nullptr) return;
+          
+          Vec3f position = object1->transform->position;
+          Vec3f otherPosition = object2->transform->position;
+          
+          Vec3f velocity = object1->velocity;
+          Vec3f otherVelocity = object2->velocity;
+          
+          Vec3f direction = Vec3f(otherPosition).subtract(position);
+          float length2 = direction.len2();
+          if (length2 > 0) {
+              float length = sqrt(length2);
+              float ax = (otherVelocity.x - velocity.x) * (otherPosition.x - position.x);
+              float ay = (otherVelocity.y - velocity.y) * (otherPosition.y - position.y);
+              float az = (otherVelocity.z - velocity.z) * (otherPosition.z - position.z);
+              
+              // Hooke's law
+              float magnitude = (length - restLength) * stiffness;
+              magnitude += (ax + ay + az) * damping / length;
+              
+              Vec3f spring = Vec3f(direction).multiply(1 / length).multiply(magnitude);
+              
+              object1->force.x += spring.x;
+              object1->force.y += spring.y;
+              object1->force.z += spring.z;
+              
+              object2->force.x -= spring.x;
+              object2->force.y -= spring.y;
+              object2->force.z -= spring.z;
+         }
+     }
+     void render() override {
+         Vec3f p1 = object1->transform->position;
+         Vec3f p2 = object2->transform->position;
+         
+         BatchRenderer::draw_spring(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+     }
+     
+     void link(RigidBody *object1, RigidBody *object2) {
+          this->object1 = object1;
+          this->object2 = object2;
      }
 };
 
@@ -2244,6 +2706,7 @@ class ObjectLevel {
              }
         }
         
+        
         void resolve_collisions(float timeTook) {
              manifolds.clear();
              triggers.clear();
@@ -2255,32 +2718,84 @@ class ObjectLevel {
                   for (auto &object2 : objects) {
                        if (object1->index == object2->index) break;
                        if (!object1->collider || !object2->collider) continue;
+                       if (object1->immovable && object2->immovable) continue;
                        
                        ManifoldPoints points = object1->collider->test(object1->transform, object2->collider, object2->transform);
-                       if (points.collided) {
+                       if (!points.collided) continue;
+                            
+                       Manifold manifold = Manifold(object1, object2, points);
+                       bool trigger = object1->isTrigger || object2->isTrigger;
+                           
+                       float dotProductGravity = Vec3f(points.normal).multiply(-1).dot(Vec3f(0.0f, -1.0f, 0.0f));
+                       if (dotProductGravity > temporaryDot) {
+                           normal = points.normal;
+                           temporaryDot = dotProductGravity;
+                       }
+                       
+                       object1->collidingNormal = normal;
+                       object2->collidingNormal = normal;
+                       object1->lastManifoldPoints = points;
+                       object2->lastManifoldPoints = points;  
+                       if (!object2->isTrigger) object1->collidingObject = object2;
+                       if (!object1->isTrigger) object2->collidingObject = object1;
+                            
+                       if (trigger) triggers.emplace_back(manifold);
+                       else manifolds.emplace_back(manifold);
+                  }
+             }
+             
+             for (auto &object1 : objects) {
+                  float temporaryDot = 10000.0f;
+                  Vec3f normal;
+                  
+                  for (auto &object2 : objects) {
+                       if (object1->index == object2->index) continue;
+                       if (!object1->collider || !object2->collider) continue;
+                       if (object1->immovable && object2->immovable) continue;
+                       
+                       ColliderGroup *group = dynamic_cast<ColliderGroup*>(object2->collider);
+                       if (group == nullptr) continue;
+                       
+   
+                       for (auto &pair : group->colliders) {
+                            Collider *collider = pair.first;
+                            Transform *transform = pair.second;
+                            
+                            Vec3f position = Vec3f(transform->position);
+                            position = object2->transform->rotation.transform(position);
+                            position = position.add(object2->transform->position);
+                            
+                            Transform *newTransform = new Transform();
+                            newTransform->position = position;
+                            newTransform->rotation = Quaternion(transform->rotation).multiply_left(object2->transform->rotation);
+                            
+                            ManifoldPoints points = object1->collider->test(object1->transform, collider, newTransform);
+                            if (!points.collided) continue;
+                            
                             Manifold manifold = Manifold(object1, object2, points);
                             bool trigger = object1->isTrigger || object2->isTrigger;
                             
-                            // Calculate the "furthest" normal to the gravity vector.
-                            // This solves the issue of "sticky walls", where the player couldn't jump when touching a vertical wall near
-                            // a horizontal surface, for example.
                             float dotProductGravity = Vec3f(points.normal).multiply(-1).dot(Vec3f(0.0f, -1.0f, 0.0f));
-                            if (dotProductGravity > temporaryDot) {
-                                normal = points.normal;
-                                temporaryDot = dotProductGravity;
+                            if (dotProductGravity < temporaryDot) {
+                                 normal = Vec3f(points.normal).multiply(-1);
+                                 temporaryDot = dotProductGravity;
                             }
                             
-                            object1->colliding = &manifold;
-                            object2->colliding = &manifold;
                             
                             object1->collidingNormal = normal;
                             object2->collidingNormal = normal;
+                            object1->lastManifoldPoints = points;
+                            object2->lastManifoldPoints = points;    
+                            if (!object2->isTrigger) object1->collidingObject = object2;
+                            if (!object1->isTrigger) object2->collidingObject = object1;
+                            
                             
                             if (trigger) triggers.emplace_back(manifold);
-                            else manifolds.emplace_back(manifold);
+                            else manifolds.emplace_back(manifold); 
                        }
                   }
              }
+             
              // Don't resolve collisions with triggers
              for (auto &solver : solvers) {
                   solver->solve(manifolds);
@@ -2304,13 +2819,18 @@ class PhysicsLevel : public ObjectLevel {
         Vec3f gravity;
         
         void load() override {
+             simulationSteps = 5;
+             gravity = Vec3f(0.0f, -9.81f, 0.0f);
+             
              objects.clear();
              solvers.clear();
+             forces.clear();
+             constraints.clear();
+             
              add_solver(new PositionSolver());
              add_solver(new ElasticImpulseSolver());
              
-             simulationSteps = 5;
-             gravity = Vec3f(0.0f, -9.81f, 0.0f);
+             add_force(new GravityForce(gravity));
         }
         
         void update(float timeTook) override {
@@ -2323,37 +2843,107 @@ class PhysicsLevel : public ObjectLevel {
         void update_with_sub_steps(float timeTook) {
              resolve_collisions(timeTook);
              
-             // Reseting force and applying gravity
+             // Reseting the forces + applying
              for (auto &object : objects) {
                   RigidBody *body = dynamic_cast<RigidBody*>(object);
                   if (body == nullptr) continue;
+                  
+                  Vec3f params = body->inertiaParameters;
+                  body->calculate_inertia_tensor(params.x, params.y, params.z);
                   
                   body->force.set_zero();
-                  if (!body->immovable) {
-                       Vec3f acceleration = Vec3f(body->velocity).multiply(-1).add(gravity);
-                       body->force.x += acceleration.x * body->mass;
-                       body->force.y += acceleration.y * body->mass;
-                       body->force.z += acceleration.z * body->mass;
+                  if (body->immovable) {
+                       body->velocity.set_zero();
+                       body->angularVelocity.set_zero();
+                  }
+                  
+                  for (auto &force : forces) {
+                       force->apply(body, timeTook);
                   }
              }
+             for (auto &constraint : constraints) {
+                  constraint->apply();
+             }
              
-             // Euler's method
              for (auto &object : objects) {
+                  if (object->immovable) continue;
+                  
                   RigidBody *body = dynamic_cast<RigidBody*>(object);
                   if (body == nullptr) continue;
                   
-                  body->velocity.x += (body->force.x * timeTook) / body->mass;
-                  body->velocity.y += (body->force.y * timeTook) / body->mass;
-                  body->velocity.z += (body->force.z * timeTook) / body->mass;
-               
-                  body->transform->position.x += body->velocity.x * timeTook;
-                  body->transform->position.y += body->velocity.y * timeTook;
-                  body->transform->position.z += body->velocity.z * timeTook;
+                  // Linear motion
+                  float nextForceX = body->force.x + (body->force.x * timeTook);
+                  float nextForceY = body->force.y + (body->force.y * timeTook);
+                  float nextForceZ = body->force.z + (body->force.z * timeTook);
+                  
+                  float correctForceX = (body->force.x + nextForceX) / 2.0f * timeTook;
+                  float correctForceY = (body->force.y + nextForceY) / 2.0f * timeTook;
+                  float correctForceZ = (body->force.z + nextForceZ) / 2.0f * timeTook;
+                  
+                  // Add velocity with acceleration
+                  float nextVelocityX = body->velocity.x + correctForceX / body->mass;
+                  float nextVelocityY = body->velocity.y + correctForceY / body->mass;
+                  float nextVelocityZ = body->velocity.z + correctForceZ / body->mass;
+                  
+                  float correctVelocityX = (body->velocity.x + nextVelocityX) / 2.0f * timeTook;
+                  float correctVelocityY = (body->velocity.y + nextVelocityY) / 2.0f * timeTook;
+                  float correctVelocityZ = (body->velocity.z + nextVelocityZ) / 2.0f * timeTook;
+                  
+                  // Rotational motion
+                  Vec3f angularAcceleration = body->inverseInertia.multiply(body->torque);
+                 
+                  float nextAAccelerationX = angularAcceleration.x + (angularAcceleration.x * timeTook);
+                  float nextAAccelerationY = angularAcceleration.y + (angularAcceleration.y * timeTook);
+                  float nextAAccelerationZ = angularAcceleration.z + (angularAcceleration.z * timeTook);
+                  
+                  float correctAAccelerationX = (angularAcceleration.x + nextAAccelerationX) / 2.0f * timeTook;
+                  float correctAAccelerationY = (angularAcceleration.y + nextAAccelerationY) / 2.0f * timeTook;
+                  float correctAAccelerationZ = (angularAcceleration.z + nextAAccelerationZ) / 2.0f * timeTook;
+                  
+                  float nextAVelocityX = body->angularVelocity.x + correctAAccelerationX;
+                  float nextAVelocityY = body->angularVelocity.y + correctAAccelerationY;
+                  float nextAVelocityZ = body->angularVelocity.z + correctAAccelerationZ;
+                  
+                  float correctAVelocityX = (body->angularVelocity.x + nextAVelocityX) / 2.0f * timeTook;
+                  float correctAVelocityY = (body->angularVelocity.y + nextAVelocityY) / 2.0f * timeTook;
+                  float correctAVelocityZ = (body->angularVelocity.z + nextAVelocityZ) / 2.0f * timeTook;
+                  
+                  
+                  
+                  body->velocity.x += correctForceX / body->mass;
+                  body->velocity.y += correctForceY / body->mass;
+                  body->velocity.z += correctForceZ / body->mass;
+                  
+                  
+                  body->transform->position.x += correctVelocityX;
+                  body->transform->position.y += correctVelocityY;
+                  body->transform->position.z += correctVelocityZ;
+                  
+                  body->angularVelocity.x += correctAAccelerationX;
+                  body->angularVelocity.y += correctAAccelerationY;
+                  body->angularVelocity.z += correctAAccelerationZ;
+                  
+                  body->transform->rotation = body->transform->rotation.multiply_left(Quaternion().from_euler(correctAVelocityX, correctAVelocityY, correctAVelocityZ));
+             }
+             for (auto &object : objects) {
+                  RigidBody *body = dynamic_cast<RigidBody*>(object);
+                  if (body == nullptr) continue;
+                  body->torque = Vec3f(0.0f, 0.0f, 0.0f);
              }
         }
         
+        void add_force(ForceGenerator *generator) {
+             forces.push_back(generator);
+        }
+        void add_constraint(Constraint *constraint) {
+             constraints.push_back(constraint);
+        }
+        std::vector<Constraint*> &get_constraints() { return constraints; }
+        
     private:
         int simulationSteps;
+        std::vector<ForceGenerator*> forces;
+        std::vector<Constraint*> constraints;
 };
 
 class Level {
@@ -2378,105 +2968,149 @@ class Level {
             objectShader = new Shader("resources/shaders/object.vert", "resources/shaders/object.frag");
             skyboxShader = new Shader("resources/shaders/skybox.vert", "resources/shaders/skybox.frag");
             skybox = new Skybox(textures);
+            
             level.load();
-            this->start();
-        }
-        void start() {
-            level.get_objects().clear();
+                         
             
             ball = new SphereObject(0.35f);
-            ball->place(2.0f, 5.0f, 0.0f);
             ball->set_material(Materials::aluminium);
+            ball->set_restitution(0.2f);
+                   
+            this->start(0);
+        }
+        void start(int levelIndex) {
+            level.get_objects().clear();
+            level.get_constraints().clear();
+            
+            ball->velocity = Vec3f(0.0f, 0.0f, 0.0f);
             level.add_object(ball);
            
-            add_box(Vec3f(0.0f, -1.0f, 0.0f), 10.0f, 0.5f, 10.0f, "grass.png", Materials::grass);
-            add_box(Vec3f(-17.0f, -1.0f, 0.0f), 4.0f, 0.5f, 0.5f, "grass.png", Materials::grass);
-            add_box(Vec3f(-26.0f, -1.0f, 0.0f), 1.0f, 0.5f, 1.0f, "grass.png", Materials::grass);
-            add_box(Vec3f(-33.0f, -1.0f, 7.0f), Vec3f(0.0f, 1.0f, 0.0f), 5.0f, 0.5f, 0.5f, "grass.png", Materials::grass);
-            add_box(Vec3f(-43.0f, -1.0f, 17.0f), 5.0f, 0.5f, 5.0f, "grass.png", Materials::grass);
-            add_box(Vec3f(-43.0f, 1.5f, 17.0f), 2.0f, 2.0f, 2.0f, "wood.png", Materials::wood);
-            add_box(Vec3f(-46.0f, 0.5f, 17.0f), 1.0f, 1.0f, 1.0f, "wood.png", Materials::wood);
-            
-            Object *trigger = new Object(true);
-            trigger->place(-43.0f, 5.5f, 17.0f);
-            trigger->set_collider(new BoxCollider(1.5f, 2.0f, 1.5f));
-            trigger->on_collision([&](Manifold collision, float timeTook) {
-                 if (collision.object2 == ball) {
-                      completedLevel = true;
-                 }
-            });
-            trigger->set_trigger(true);
-            
-            level.add_object(trigger);
-            
-            for (auto &mesh : MeshGenerator::load_meshes_from_file("resources/objects/table.obj")) {
-                 ModelObject *model = new ModelObject(mesh);
-                
-                 model->set_immovable(true);
-                 model->place_offset(0.0f, 0.0f, 0.0f);
-                 model->set_material(Materials::wood);
-                 model->set_texture("resources/textures/wood.png");
-                 
-                 level.add_object(model);
+            if (levelIndex == 0) {
+                       ball->place(2.0f, 10.0f, 0.0f);
+                       
+                       add_box(Vec3f(0.0f, -1.0f, 0.0f), 10.0f, 0.5f, 10.0f, "grass.png", Materials::grass);
+                       add_box(Vec3f(-17.0f, -1.0f, 0.0f), 4.0f, 0.5f, 0.5f, "grass.png", Materials::grass);
+                       add_box(Vec3f(-26.0f, -1.0f, 0.0f), 1.0f, 0.5f, 1.0f, "grass.png", Materials::grass);
+                       add_box(Vec3f(-33.0f, -1.0f, 7.0f), Vec3f(0.0f, 1.0f, 0.0f), 5.0f, 0.5f, 0.5f, "grass.png", Materials::grass);
+                       add_box(Vec3f(-43.0f, -1.0f, 17.0f), 5.0f, 0.5f, 5.0f, "grass.png", Materials::grass);
+                       add_box(Vec3f(-43.0f, 1.5f, 17.0f), 2.0f, 2.0f, 2.0f, "wood.png", Materials::wood);
+                       add_box(Vec3f(-46.0f, 0.5f, 17.0f), 1.0f, 1.0f, 1.0f, "wood.png", Materials::wood);
+                      
+                      
+                       add_finish(Vec3f(-43.0f, 5.5f, 17.0f), 1.5f, 2.0f, 1.5f);
+                      
+                       add_model(Vec3f(0.0f, 0.0f, 0.0f), "table.obj", "wood.png", Materials::wood);
+                       add_model(Vec3f(2.0f, 0.0f, 0.0f), "chair.obj", "wood.png", Materials::wood); 
+                       ModelObject *model = add_model(Vec3f(-2.0f, 0.0f, 0.0f), "chair.obj", "wood.png", Materials::wood);                      
+                       model->rotate(0.0f, M_PI, 0.0f);
+                          
+            } else if (levelIndex == 1) {
+                       ball->place(2.0f, 0.0f, 0.0f);
+                       
+                       add_box(Vec3f(0.0f, -1.0f, 0.0f), 5.0f, 0.5f, 5.0f, "grass.png", Materials::grass);
+                       add_box(Vec3f(6.0f, 0.5f, 0.0f), 1.0f, 2.0f, 5.0f, "grass.png", Materials::grass);
+                       add_box(Vec3f(4.0f, 0.5f, 0.0f), 1.0f, 1.0f, 1.0f, "wood.png", Materials::wood);
+                       
+                       add_box(Vec3f(10.0f, 2.0f, 0.0f), 3.0f, 0.5f, 5.0f, "grass.png", Materials::grass);
+                       add_box(Vec3f(15.0f, -4.0f, 0.0f), 1.0f, 0.5f, 7.0f, "grass.png", Materials::grass);
+                       add_box(Vec3f(15.0f, -2.5f, 6.0f), 1.0f, 1.0f, 1.0f, "wood.png", Materials::wood);
+                       add_box(Vec3f(25.0f, -1.0f, 6.0f), 5.0f, 0.5f, 0.25f, "grass.png", Materials::grass);
+                       add_box(Vec3f(19.0f, -1.0f, 6.0f), 1.0f, 0.5f, 1.0f, "grass.png", Materials::grass);
+                       
+                       // Floor
+                       add_box(Vec3f(37.0f, -7.0f, 6.0f), 3.0f, 0.5f, 3.0f, "wood.png", Materials::wood);
+                       
+                       // To other platform
+                       add_box(Vec3f(45.0f, -2.0f, 6.0f), 3.0f, 0.5f, 1.0f, "grass.png", Materials::grass);
+                       add_finish(Vec3f(50.0f, 1.0f, 6.0f), 1.5f, 2.0f, 1.5f);
+                       
+                       // Stairs
+                       add_box(Vec3f(34.5f, -5.5f, 8.5f), 0.5f, 1.0f, 0.5f, "wood.png", Materials::wood);
+                       add_box(Vec3f(34.5f, -4.5f, 7.5f), 0.5f, 2.0f, 0.5f, "wood.png", Materials::wood);
+                       add_box(Vec3f(34.5f, -3.5f, 6.5f), 0.5f, 3.0f, 0.5f, "wood.png", Materials::wood);
+                       
+                       // Walls
+                       add_box(Vec3f(33.5f, -3.5f, 6.5f), 0.5f, 4.0f, 4.0f, "wood.png", Materials::wood);
+                       
+                       // Ceilling
+                       BoxObject *box = add_box(Vec3f(37.0f, 4.0f, 6.0f), 3.0f, 0.5f, 3.0f, "wood.png", Materials::wood);
+                       ModelObject *bowl = add_model(Vec3f(37.0f, 2.0f, 6.0f), "bowl.obj", "wood.png", Materials::wood);
+                       
+                       bowl->set_mass(1.0f);
+                       bowl->set_immovable(false);
+                       add_sphere(Vec3f(37.0f, 3.0f, 6.0f), 0.35f, Materials::copper);
+                       
+                       SpringConstraint *constraint = new SpringConstraint(3.0f, 7.0f, 10.0f);
+                       constraint->link(box, bowl);
+                       add_constraint(constraint);
+            } else {
+                       ball->place(0.0f, 1.0f, 0.0f);
+                       
+                       add_box(Vec3f(0.0f, -1.0f, 0.0f), 10.0f, 0.5f, 10.0f, "grass.png", Materials::grass);
             }
-           
-            for (auto &mesh : MeshGenerator::load_meshes_from_file("resources/objects/chair.obj")) {
-                 ModelObject *model = new ModelObject(mesh);
-                
-                 model->set_immovable(true);
-                 model->place_offset(2.0f, 0.0f, 0.0f);
-                 model->set_material(Materials::wood);
-                 model->set_texture("resources/textures/wood.png");
-                 
-                 level.add_object(model);
-            }
             
-            a = 0.0f;
+            
             completedLevel = false;
         }
         
         void update(float timeTook) {
-            a += timeTook;
             level.update(timeTook);
-            /*
-            if (a > 1.0f) {
-                 float size = rand() % 50 / 150.0f + 0.1f;
-                 SphereObject *sphere = new SphereObject(size);
-                 sphere->apply_velocity(0.1f, -10.0f, 0.0f);
-                 sphere->place(0.0f, 20.0f, 0.0f);
-                 sphere->set_mass(size * 2.0f);
-                 
-                 sphere->set_material(rand() % 2 == 1 ? Materials::aluminium : Materials::gold);
-                 
-                 level.add_object(sphere);
-                 a = 0.0f;
-            }
-            */
         }
         
         void render(Camera *camera) {
-            // Skybox
-            skyboxShader->use();
-            skyboxShader->set_uniform_mat4("view", camera->get_view());
-            skyboxShader->set_uniform_mat4("projection", camera->get_projection());
+            bool debug = false;
+            if (!debug) {
+                 // Skybox
+                 skyboxShader->use();
+                 skyboxShader->set_uniform_mat4("view", camera->get_view());
+                 skyboxShader->set_uniform_mat4("projection", camera->get_projection());
             
-            skybox->render(skyboxShader);
-            
-            // Objects
-            objectShader->use();
-            objectShader->set_uniform_mat4("view", camera->get_view());
-            objectShader->set_uniform_mat4("projection", camera->get_projection());
-            objectShader->set_uniform_vec3f("viewPosition", camera->position.x, camera->position.y, camera->position.z);
+                 skybox->render(skyboxShader);
+              
+                 // Objects
+                 objectShader->use();
+                 objectShader->set_uniform_mat4("view", camera->get_view());
+                 objectShader->set_uniform_mat4("projection", camera->get_projection());
+                 objectShader->set_uniform_vec3f("viewPosition", camera->position.x, camera->position.y, camera->position.z);
         
          
-            for (auto &object : level.get_objects()) {
-                 object->mesh->rotate(object->transform->rotation);
-                 object->mesh->translate(object->transform->position);
+                 for (auto &object : level.get_objects()) {
+                       object->mesh->rotate(object->transform->rotation);
+                       object->mesh->translate(object->transform->position);
                  
-                 object->mesh->render(objectShader);
+                       object->mesh->render(objectShader);
+                 }
+            } else {
+                 for (auto &object : level.get_objects()) {
+                       BoxCollider *box = dynamic_cast<BoxCollider*>(object->collider);
+                       SphereCollider *sphere = dynamic_cast<SphereCollider*>(object->collider);
+                       ColliderGroup *group = dynamic_cast<ColliderGroup*>(object->collider);
+                       
+                       Vec3f highlight = object->collidingObject ? Vec3f(0.0f, 1.0f, 0.0f) : Vec3f(1.0f, 1.0f, 1.0f);
+                       Vec3f p = object->transform->position;
+                       
+                       if (box != nullptr) {
+                            BatchRenderer::draw_box_outline(p.x, p.y, p.z, box->width, box->height, box->depth, object->transform->rotation, highlight); 
+                       }
+                       if (sphere != nullptr) {
+                            BatchRenderer::draw_sphere_outline(p.x, p.y, p.z, sphere->radius, highlight);
+                       }
+                       if (group != nullptr) {
+                            for (auto &pair : group->colliders) {
+                                 BoxCollider *collider = (BoxCollider*) pair.first;
+                                 Vec3f pos = Vec3f(pair.second->position).add(object->transform->position);
+                                 BatchRenderer::draw_box_outline(pos.x, pos.y, pos.z, collider->width, collider->height, collider->depth, object->transform->rotation, highlight); 
+                       
+                            }
+                       }
+                 }
+                 UIRenderer::draw_string("Collider debug", -0.9f, 0.87f, 0.7f, 0.7f);
             }
             
-            
+            for (auto &constraint : level.get_constraints()) {
+                 constraint->render();
+            }
+            BatchRenderer::render(camera);
         }
         void dispose() {
             for (auto &object : level.get_objects()) {
@@ -2487,17 +3121,112 @@ class Level {
             objectShader->clear();
             skyboxShader->clear();
         }
-        void add_box(const Vec3f &position, float width, float height, float depth, const std::string &textureFile = "", const Material &material = Materials::defaultMaterial) {
-            BoxObject *box = new BoxObject(width, height, depth);
-            
-            box->set_immovable(true);
-            box->place(position.x, position.y, position.z);
-            if (textureFile.compare("")) box->set_texture("resources/textures/" + textureFile);
-            box->set_material(material);
-            
-            level.add_object(box);
+        /*
+        void load_level(const std::string &fileName) {
+            std::ifstream read(fileName);
+            if (!read.is_open() || read.fail()) {
+                printf("Couldn't open the level file.\n");
+                return;
+            }   
+       
+            std::string line; 
+            while (std::getline(read, line)) {
+                  if (!line.compare("") || !line.compare(" ")) {
+                       continue;
+                  }
+              
+                  std::istringstream stream(line);
+                  std::string key;
+                  stream >> key;
+              
+                  if (!key.compare("playerPosition")) {
+                       float x, y, z;
+                       stream >> x >> y >> z;
+                       
+                       ball->place(x, y, z);
+                  }
+                  
+                  else if (!key.compare("box")) {
+                       Vec3f position, rotation;
+                       float width, height, depth;
+                       std::string textureLocation, materialLocation;
+                       
+                       stream >> position.x >> position.y >> position.z
+                              >> width >> height >> depth
+                              >> rotation.x >> rotation.y >> rotation.z
+                              >> textureLocation >> materialLocation;
+                              
+                       //add_box(position, rotation, width, height, depth, textureLocation, materials[materialLocation]);
+                  }
+                  else if (!key.compare("sphere")) {
+                       Vec3f position;
+                       float radius;
+                       std::string materialLocation;
+                       
+                       stream >> position.x >> position.y >> position.z
+                              >> radius
+                              >> materialLocation;
+                       
+                       //add_sphere(position, radius, materials[materialLocation]);
+                  }
+                  else if (!key.compare("model")) {
+                       Vec3f position;
+                       std::string modelFile;
+                       
+                       stream >> position.x >> position.y >> position.z
+                              >> modelFile;
+                       
+                       //add_model(position, modelFile);
+                  }
+                  else if (!key.compare("finish")) {
+                       Vec3f position, rotation;
+                       float width, height, depth;
+                       std::string levelName;
+                       
+                       stream >> position.x >> position.y >> position.z
+                              >> width >> height >> depth
+                              >> levelName;
+                       
+                       //add_finish(position, width, height, depth, levelName);
+                  }
+                  
+                  else if (!key.compare("setMass")) {
+                       int index;
+                       float amount;
+                       
+                       stream >> index >> amount;
+                       
+                       ((RigidBody*) level.get_objects().at(index))->set_mass(amount);
+                  }
+                  else if (!key.compare("isImmovable")) {
+                       int index;
+                       bool immovable;
+                       
+                       stream >> index >> immovable;
+                       
+                       ((RigidBody*) level.get_objects().at(index))->set_immovable(immovable);
+                  }
+                  
+                  else if (!key.compare("spring")) {
+                       int index1, index2;
+                       float restLength, damping, stiffness;
+                       
+                       stream >> index1 >> index2
+                              >> restLength >> damping >> stiffness;
+                       
+                       
+                       RigidBody *object1 = (RigidBody*) level.get_objects().at(index1);
+                       RigidBody *object2 = (RigidBody*) level.get_objects().at(index2);
+                       
+                       SpringConstraint *constraint = new SpringConstraint(restLength, damping, stiffness);
+                       constraint->link(object1, object2);
+                       
+                       add_constraint(constraint);
+                  }
+             }
         }
-        void add_box(const Vec3f &position, const Vec3f &rotation, float width, float height, float depth, const std::string &textureFile = "", const Material &material = Materials::defaultMaterial) {
+        */
+        BoxObject *add_box(const Vec3f &position, const Vec3f &rotation, float width, float height, float depth, const std::string &textureFile = "", const Material &material = Materials::defaultMaterial) {
             BoxObject *box = new BoxObject(width, height, depth);
             
             box->set_immovable(true);
@@ -2507,7 +3236,53 @@ class Level {
             box->set_material(material);
             
             level.add_object(box);
+            
+            return box;
         }
+        BoxObject *add_box(const Vec3f &position, float width, float height, float depth, const std::string &textureFile = "", const Material &material = Materials::defaultMaterial) {
+            return add_box(position, Vec3f(0.0f, 0.0f, 0.0f), width, height, depth, textureFile, material);
+        }
+        SphereObject *add_sphere(const Vec3f &position, float radius, const Material &material = Materials::defaultMaterial) {
+            SphereObject *sphere = new SphereObject(radius);
+            sphere->place(position.x, position.y, position.z);
+            sphere->set_material(material);
+            
+            level.add_object(sphere);
+            return sphere;       
+        }
+        ModelObject *add_model(const Vec3f &position, const std::string &modelFile, const std::string &textureFile, const Material &material = Materials::defaultMaterial) {
+            ModelObject *model = new ModelObject("resources/objects/" + modelFile);
+            
+            model->set_immovable(true);
+            model->place(position.x, position.y, position.z);
+            model->set_material(material);
+            if (textureFile.compare("")) model->set_texture("resources/textures/" + textureFile);
+            
+            level.add_object(model);
+            return model;
+        }
+        Object *add_finish(const Vec3f &position, float width, float height, float depth) {
+            Object *trigger = new Object(true);
+            trigger->place(position.x, position.y, position.z);
+            trigger->set_collider(new BoxCollider(width, height, depth));
+            trigger->on_collision([&](Manifold collision, float timeTook) {
+                  if (collision.object2 == ball) {
+                      completedLevel = true;
+                  }
+            });
+            trigger->set_trigger(true);
+            level.add_object(trigger);
+            
+            return trigger;
+        }
+        
+        void add_force(ForceGenerator *generator) {
+            level.add_force(generator);
+        }
+        void add_constraint(Constraint *constraint) {
+            level.add_constraint(constraint);
+        }
+        
         SphereObject *get_ball() { return ball; }
          
     private:
@@ -2524,12 +3299,11 @@ class Level {
         
         PhysicsLevel level;
         SphereObject *ball;
-        
-        float a = 0.0f;
 };
 
 class BallControls {
     public:
+        bool orbits = false;
         BallControls(Camera *camera, SphereObject *ball) {
             this->camera = camera;
             this->ball = ball;
@@ -2541,10 +3315,16 @@ class BallControls {
            
             if (ev.type == SDL_MOUSEMOTION) {       
                 float sensitivity = 0.1f;
-               
-                if (click.y < h / 2) {
-                    camera->rotationX -= ev.motion.xrel * sensitivity * timeTook;
-                    camera->rotationY += ev.motion.yrel * sensitivity * timeTook;
+                if (orbits) {
+                    if (click.y < h / 2) {
+                        camera->rotationX -= ev.motion.xrel * sensitivity * timeTook;
+                        camera->rotationY += ev.motion.yrel * sensitivity * timeTook;
+                    }
+                } else {
+                    if (click.y < h / 2) {
+                        camera->rotationX -= ev.motion.xrel * sensitivity * timeTook;
+                        camera->rotationY -= ev.motion.yrel * sensitivity * timeTook;
+                    }
                 }
                 
                 if (camera->rotationX > 2 * M_PI) camera->rotationX = 0;
@@ -2557,14 +3337,14 @@ class BallControls {
                 Vec3f vel = Vec3f(cos(camera->rotationX),
                                   0.0f,
                                   sin(camera->rotationX));
-                Vec3f v = vel.multiply(-s * timeTook);
+                Vec3f v = vel.multiply(s * timeTook);
+                if (orbits) v = v.multiply(-1);
                 
                 if (click.y > h / 2 && click.x < w / 2) {
                     ball->velocity.add(v);
                 }
                 else if (click.y > h / 2 && click.x > w / 2) {
-                    Vec3f back = v.multiply(-1);
-                    ball->velocity.add(back);
+                    ball->velocity.subtract(v);
                 }
             }
             if (ev.type == SDL_MOUSEBUTTONUP) {
@@ -2577,8 +3357,8 @@ class BallControls {
             if (!ball->has_collided()) return;
             
             float strength = 7.5f;
-            
             Vec3f normal = ball->collidingNormal;
+            
             if (normal.dot(gravity) < 0) {
                  Vec3f offset = Vec3f(normal).multiply(0.1f);
                  Vec3f velocity = Vec3f(normal).multiply(strength);
@@ -2586,7 +3366,27 @@ class BallControls {
                  ball->transform->position.add(offset);
                  ball->velocity.add(Vec3f(velocity).multiply(1 / ball->mass));
                  
-                 ball->colliding = 0;
+                 
+                 RigidBody *body = dynamic_cast<RigidBody*>(ball->collidingObject);
+                 if (body != nullptr) {
+                      if (!body->immovable) {
+                           Vec3f impulse = Vec3f(velocity).multiply(1 / body->mass);
+                           body->velocity.subtract(impulse);
+                           body->apply_instant_torque(ball->lastManifoldPoints.AtoB, impulse);
+                      }
+                      body->collidingObject = 0;
+                 }
+                 
+                 ball->collidingObject = 0;
+            }
+        }
+        void update() {
+            if (orbits) {
+                 float distance = 5.0f;
+                 camera->lookingAt = Vec3f(ball->transform->position);
+                 camera->position = Vec3f(ball->transform->position).add(Vec3f(cos(camera->rotationX) * cos(camera->rotationY) * distance, sin(camera->rotationY) * distance, sin(camera->rotationX) * cos(camera->rotationY) * distance));
+            } else {
+                 camera->position = Vec3f(ball->transform->position);
             }
         }
         
@@ -2616,34 +3416,43 @@ class Game
     virtual void dispose() {};
 };
 
-class ExampleRenderingEngine : public Game {
+class Aluminium3D : public Game {
     Camera *camera;
     BallControls *controls;
     float completedTimer = 0.0f;
+    int levelIndex = 0;
+    float timer = 0.0f;
+    
+    int fps = 0;
+    float framesPerSecond = 0.0f;
+    float lastTime = 0.0f;
     public:  
        void init() override {
-           displayName = "Example Rendering Engine";
+           displayName = "Aluminium 3D";
        }
        void load() override {
            Materials::load();
            FreeType::get().load();
            UIRenderer::load();
+           BatchRenderer::load();
            Level::get().load();
            
            camera = new Camera();
+           camera->useRotation = false;
            controls = new BallControls(camera, Level::get().get_ball());
+           controls->orbits = true;
        }
        void handle_event(SDL_Event ev, float timeTook) override {
            controls->handle_event(ev, timeTook);
        }
        void update(float timeTook) override {
-           float distance = 4.0f;
-           SphereObject *ball = Level::get().get_ball();
+           if (!Level::get().completedLevel) {
+                timer += timeTook / SDL_GetPerformanceFrequency() * 1000000;
+           }
            
            Level::get().update(timeTook);
            
-           camera->lookingAt = Vec3f(ball->transform->position);
-           camera->position = Vec3f(ball->transform->position).add(Vec3f(cos(camera->rotationX) * cos(camera->rotationY) * distance, sin(camera->rotationY) * distance, sin(camera->rotationX) * cos(camera->rotationY) * distance));
+           controls->update();
            camera->update();
            
            if (Level::get().completedLevel) {
@@ -2659,19 +3468,39 @@ class ExampleRenderingEngine : public Game {
                 UIRenderer::draw_string_centered("Level complete!", position.x, position.y);
                 
                 if (completedTimer >= 5.0f) {
-                     Level::get().start();
+                     levelIndex++;
+                     Level::get().start(levelIndex);
                      controls = new BallControls(camera, Level::get().get_ball());
+                     controls->orbits = true;
+                     
                      completedTimer = 0.0f;
+                     timer = 0.0f;
                 }
            }
-           
+           UIRenderer::draw_string("FPS: " + std::to_string(fps), -0.9f, 0.8f, 0.5f, 0.5f);
+           UIRenderer::draw_string("Timer: " + std::to_string(int(timer)) + " seconds", -0.9f, 0.7f, 0.5f, 0.5f);
+          
            Level::get().render(camera);
            UIRenderer::render();
+           
+           calculate_FPS();
        }
        
-       void dispose() {  
+       void dispose() override {  
            Level::get().dispose();
            UIRenderer::dispose();
+           BatchRenderer::dispose();
+           FreeType::get().dispose();
+       }
+       
+       void calculate_FPS() {
+           float currentTime = SDL_GetTicks() * 0.001f;
+           framesPerSecond++;
+           if (currentTime - lastTime > 1.0f) {
+                lastTime = currentTime;
+                fps = (int) framesPerSecond;
+                framesPerSecond = 0.0f;
+           }
        }
 };
 
@@ -2693,7 +3522,7 @@ int main()
 	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
     
     
-    ExampleRenderingEngine game;
+    Aluminium3D game;
     game.init();
     
 	SDL_Window *window = SDL_CreateWindow(game.displayName, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_OPENGL);
@@ -2710,11 +3539,12 @@ int main()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glEnable(GL_BLEND);
-    
+    glEnable(GL_POLYGON_OFFSET_FILL);
     
     glDepthFunc(GL_LESS);
     glCullFace(GL_FRONT);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glPolygonOffset(1, 0);
     
     game.load();    
     

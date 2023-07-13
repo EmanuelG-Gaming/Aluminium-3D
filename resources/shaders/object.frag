@@ -53,7 +53,7 @@ void main() {
     }
     
     float z = (gl_FragCoord.z / gl_FragCoord.w);
-    float fog = clamp(exp(-fogIntensity * z * z), 0.2, 1.0);
+    float fog = clamp(exp(-fogIntensity * z * z), 0.05, 1.0);
 
     outColor = mix(fogColor, vec4(color, 1.0), fog);
     //outColor = vec4(color, 1.0);
