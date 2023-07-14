@@ -34,46 +34,13 @@ static SDL_Surface *load_surface(const char *path)
 }
 
 struct Vec2f {
-    float x, y;
-    Vec2f() {}
-    Vec2f(float x, float y) : x(x), y(y) {}
-    Vec2f set(const Vec2f &other) {
-         x = other.x;
-         y = other.y;
-         
-         return *this;
-     }
-     Vec2f set_zero() {
-         x = y = 0.0f;
-         
-         return *this;
-     }
-     Vec2f add(const Vec2f &other) {
-         x += other.x;
-         y += other.y;
-         
-         return *this;
-     }
-     Vec2f subtract(const Vec2f &other) {
-         x -= other.x;
-         y -= other.y;
-         
-         return *this;
-     }
-     Vec2f multiply(float scalar) {
-         x *= scalar;
-         y *= scalar;
-         
-         return *this;
-     }
-     Vec2f divide(float scalar) {
-         x /= scalar;
-         y /= scalar;
-         
-         return *this;
-     }
+     float x, y;
+     Vec2f() {}
+     Vec2f(float x, float y) : x(x), y(y) {}
+     
+    
      Vec2f nor() {
-         return multiply(1 / len());
+         return (*this) / len();
      }
      Vec2f perpendicular(int facing) {
          int j = facing >= 0 ? 1 : -1;
@@ -116,24 +83,51 @@ struct Vec2f {
      float crs(const Vec2f &other) {
          return x * other.y - y * other.x;
      }
+     
+     Vec2f operator+(const Vec2f &other) {
+         Vec2f result;
+         result.x = x + other.x;
+         result.y = y + other.y;
+         return result;
+     }
+     Vec2f operator-(const Vec2f &other) {
+         Vec2f result;
+         result.x = x - other.x;
+         result.y = y - other.y;
+         return result;
+     }
+     Vec2f operator*(const Vec2f &other) {
+         Vec2f result;
+         result.x = x * other.x;
+         result.y = y * other.y;
+         return result;
+     }
+     Vec2f operator/(const Vec2f &other) {
+         Vec2f result;
+         result.x = x / other.x;
+         result.y = y / other.y;
+         return result;
+     }
+    
+     Vec2f operator*(float scalar) {
+         Vec2f result;
+         result.x = x * scalar;
+         result.y = y * scalar;
+         return result;
+     }
+     Vec2f operator/(float scalar) {
+         Vec2f result;
+         result.x = x / scalar;
+         result.y = y / scalar;
+         return result;
+     }
 };
 
 struct Vec3f {
     float x, y, z;
     Vec3f() {}
     Vec3f(float x, float y, float z) : x(x), y(y), z(z) {}
-    Vec3f set(const Vec3f &other) {
-         x = other.x;
-         y = other.y;
-         z = other.z;
-         
-         return *this;
-     }
-    void set_zero() {
-        x = 0;
-        y = 0;
-        z = 0;
-    }
+    
     float dot(const Vec3f &other) {
         return x * other.x + y * other.y + z * other.z;
     }
@@ -167,38 +161,9 @@ struct Vec3f {
         return dx*dx + dy*dy + dz*dz;
     }
     Vec3f nor() {
-        return multiply(1 / len());
+        return (*this) / len();
     }
-    Vec3f add(const Vec3f &other) {
-        x = x + other.x;
-        y = y + other.y;
-        z = z + other.z;
-        
-        return *this;
-    }
-    Vec3f subtract(const Vec3f &other) {
-         x -= other.x;
-         y -= other.y;
-         z -= other.z;
-         
-         return *this;
-    }
-    Vec3f multiply(float scalar) {
-        Vec3f result;
-        result.x = x * scalar;
-        result.y = y * scalar;
-        result.z = z * scalar;
-        
-        return result;
-    }
-    Vec3f multiply(const Vec3f &other) {
-        Vec3f result;
-        result.x = x * other.x;
-        result.y = y * other.y;
-        result.z = z * other.z;
-        
-        return result;
-    }
+    
     // Component-wise clamping
     Vec3f clamp(const Vec3f &min, const Vec3f &max) {
         x = std::max(min.x, std::min(max.x, x));
@@ -207,9 +172,49 @@ struct Vec3f {
         
         return *this;
     }
-};
-struct Vec2i {
-    int x, y;
+    Vec3f operator+(const Vec3f &other) {
+        Vec3f result;
+        result.x = x + other.x;
+        result.y = y + other.y;
+        result.z = z + other.z;
+        return result;
+    }
+    Vec3f operator-(const Vec3f &other) {
+        Vec3f result;
+        result.x = x - other.x;
+        result.y = y - other.y;
+        result.z = z - other.z;
+        return result;
+    }
+    Vec3f operator*(const Vec3f &other) {
+        Vec3f result;
+        result.x = x * other.x;
+        result.y = y * other.y;
+        result.z = z * other.z;
+        return result;
+    }
+    Vec3f operator/(const Vec3f &other) {
+        Vec3f result;
+        result.x = x / other.x;
+        result.y = y / other.y;
+        result.z = z / other.z;
+        return result;
+    }
+    
+    Vec3f operator*(float scalar) {
+        Vec3f result;
+        result.x = x * scalar;
+        result.y = y * scalar;
+        result.z = z * scalar;
+        return result;
+    }
+    Vec3f operator/(float scalar) {
+        Vec3f result;
+        result.x = x / scalar;
+        result.y = y / scalar;
+        result.z = z / scalar;
+        return result;
+    }
 };
 
 class Mat4x4 {
@@ -327,7 +332,7 @@ class Mat4x4 {
            values[M02] = -sin(radians);
            values[M22] = cos(radians);
        }
-       Mat4x4 multiply(Mat4x4 &with) {
+       Mat4x4 operator*(const Mat4x4 &with) {
            Mat4x4 r;
            
            int row = 0;
@@ -356,9 +361,21 @@ class Mat4x4 {
 struct Tensor3x3 {
    public:
        float values[3][3] = {{ 0 }};
-       Tensor3x3() {}
+       Tensor3x3() {
+             identity();
+       }
        
        Vec3f multiply(const Vec3f &with) {
+             Vec3f result;
+             
+             result.x = values[0][0] * with.x + values[1][0] * with.y + values[2][0] * with.z;
+             result.y = values[0][1] * with.x + values[1][1] * with.y + values[2][1] * with.z;
+             result.z = values[0][2] * with.x + values[1][2] * with.y + values[2][2] * with.z;
+             
+             return result;
+       }
+       
+       Vec3f operator*(const Vec3f &with) {
              Vec3f result;
              
              result.x = values[0][0] * with.x + values[1][0] * with.y + values[2][0] * with.z;
@@ -416,23 +433,6 @@ struct Quaternion {
     float w, x, y, z;
     Quaternion() {}
     Quaternion(float x, float y, float z, float w) : x(x), y(y), z(z), w(w) {}
-    
-    Quaternion set(float newX, float newY, float newZ, float newW) {
-         x = newX;
-         y = newY;
-         z = newZ;
-         w = newW;
-         
-         return *this;
-    }
-    Quaternion set(const Quaternion &other) {
-         x = other.x;
-         y = other.y;
-         z = other.z;
-         w = other.w;
-        
-         return *this;
-    }
     
     // Roll - X rotation; Pitch - Y rotation; Yaw - Z rotation
     Quaternion from_euler(float roll, float pitch, float yaw) {
@@ -497,9 +497,9 @@ struct Quaternion {
     }
     Vec3f transform(const Vec3f &reference) {
          // p' = q * p * conj(q)
-         Quaternion temporary1 = Quaternion(reference.x, reference.y, reference.z, 0.0f), temporary2 = Quaternion(x, y, z, w);
+         Quaternion temporary1 = Quaternion(reference.x, reference.y, reference.z, 0.0f), temporary2 = Quaternion(*this);
          temporary2 = temporary2.conjugate();
-         temporary2 = temporary2.multiply_left(temporary1.x, temporary1.y, temporary1.z, 0.0f).multiply_left(x, y, z, w);
+         temporary2 = temporary2 * temporary1 * (*this);
          
          Vec3f result;
          
@@ -530,6 +530,19 @@ struct Quaternion {
     
     Quaternion multiply_left(const Quaternion &other) {
          return multiply_left(other.x, other.y, other.z, other.w);
+    }
+    Quaternion operator*(const Quaternion &other) {
+         float newX = other.w * x + other.x * w + other.y * z - other.z * y;
+         float newY = other.w * y + other.y * w + other.z * x - other.x * z;
+         float newZ = other.w * z + other.z * w + other.x * y - other.y * x;
+         float newW = other.w * w - other.x * x - other.y * y - other.z * z;
+         
+         Quaternion r;
+         r.x = newX;
+         r.y = newY;
+         r.z = newZ;
+         r.w = newW;
+         return r;
     }
 };
 
@@ -703,7 +716,7 @@ class Camera {
         bool useRotation = true;
         
         Camera(float fov, float zNear, float zFar, float width, float height, bool perspective) {
-            position.set_zero();
+            position = Vec3f(0.0f, 0.0f, 0.0f);
             rotationX = rotationY = 0.0f;
             lookingAt = Vec3f(1.0f, 0.0f, 0.0f);
             
@@ -734,7 +747,7 @@ class Camera {
             } else {
                 projMat.set_orthographic(-width / 2, width / 2, -height / 2, height / 2, zNear, zFar);
             }
-            combined = viewMat.multiply(projMat);
+            combined = viewMat * projMat;
         }
         void resize(float width, float height) {
             this->width = width;
@@ -764,12 +777,14 @@ class CameraControls {
         void handle_event(SDL_Event ev, float timeTook) {
             int w = 0, h = 0;
             SDL_GetWindowSize(windows, &w, &h);
-            Vec2i click = this->get_mouse_position(ev);
-           
+            
+            int clickX, clickY;
+            SDL_GetMouseState(&clickX, &clickY);
+            
             if (ev.type == SDL_MOUSEMOTION) {       
                 float sensitivity = 0.1f;
                
-                if (click.y < h / 2) {
+                if (clickY < h / 2) {
                     camera->rotationX -= ev.motion.xrel * sensitivity * timeTook;
                     camera->rotationY -= ev.motion.yrel * sensitivity * timeTook;
                 }
@@ -780,27 +795,19 @@ class CameraControls {
                 if (camera->rotationY > (89.0f / 180.0f * M_PI)) camera->rotationY = (89.0f / 180.0f * M_PI);
                 if (camera->rotationY < -(89.0f / 180.0f * M_PI)) camera->rotationY = -(89.0f / 180.0f * M_PI);
               
-                float s = 5.0f;
+                float speed = 5.0f;
                 Vec3f vel = Vec3f(cos(camera->rotationX) * cos(camera->rotationY),
                                   sin(camera->rotationY),
                                   sin(camera->rotationX) * cos(camera->rotationY));
-                Vec3f v = vel.multiply(s * timeTook);
+                Vec3f v = vel * speed * timeTook;
                 
-                if (click.y > h / 2 && click.x < w / 2) {
-                    camera->position.add(v);
+                if (clickY > h / 2 && clickX < w / 2) {
+                    camera->position = camera->position + v;
                 }
-                else if (click.y > h / 2 && click.x > w / 2) {
-                    Vec3f back = v.multiply(-1);
-                    camera->position.add(back);
+                else if (clickY > h / 2 && clickX > w / 2) {
+                    camera->position = camera->position - v;
                 }
             }
-        }
-        Vec2i get_mouse_position(SDL_Event event) {
-            int dx = 0, dy = 0;
-            SDL_GetMouseState(&dx, &dy);
-            Vec2i result = { dx, dy };
-           
-            return result;
         }
     private:
         Camera *camera;
@@ -1321,9 +1328,9 @@ struct Mesh {
               if (useTextures) texture->use();
               
               Mat4x4 model;
-              model = model.multiply(translation);
-              model = model.multiply(rotation);
-              model = model.multiply(scaling);
+              model = model * translation;
+              model = model * rotation;
+              model = model * scaling;
               shader->set_uniform_mat4("model", model);
               
               shader->set_uniform_vec3f("material.ambientColor", material.ambientColor.x, material.ambientColor.y, material.ambientColor.z);
@@ -1635,16 +1642,12 @@ namespace MeshGenerator {
          };
          
          for (auto &vertex : vertices) {
-              vertex.Position.x *= width;
-              vertex.Position.y *= height;
-              vertex.Position.z *= depth;
-              vertex.Position.x *= 2;
-              vertex.Position.y *= 2;
-              vertex.Position.z *= 2;
+              vertex.Position.x *= width * 2;
+              vertex.Position.y *= height * 2;
+              vertex.Position.z *= depth * 2;
               
               vertex.TextureCoords.x *= 2;
               vertex.TextureCoords.y *= 2;
-              
          }
          // Indices
          std::vector<GLuint> indices = {
@@ -2078,11 +2081,7 @@ namespace BatchRenderer {
            std::vector<BatchVertex> vertices;
            
            for (auto &position : sphereVertices) {
-                Vec3f p = Vec3f(position);
-                p.x *= radius;
-                p.y *= radius;
-                p.z *= radius;
-                
+                Vec3f p = position * radius;
                 p.x += x;
                 p.y += y;
                 p.z += z;
@@ -2190,7 +2189,7 @@ struct BoxCollider : Collider {
            Vec3f temporary = points.AtoB;
            points.AtoB = points.BtoA;
            points.BtoA = temporary;
-           points.normal = points.normal.multiply(-1);
+           points.normal = points.normal * -1;
            
            return points;
      }
@@ -2248,15 +2247,18 @@ namespace CollisionDetection {
           }
           
           // Points on the spheres
-          Vec3f AtoB = Vec3f(otherPosition).subtract(position).nor();
-          Vec3f BtoA = Vec3f(AtoB).multiply(-1);
+          Vec3f AtoB = (otherPosition - position).nor();
+          Vec3f BtoA = AtoB * -1;
+          /*
           AtoB = AtoB.multiply(radiusOther);
           BtoA = BtoA.multiply(radius);
           AtoB = AtoB.add(position);
           BtoA = BtoA.add(otherPosition);
+          */
+          AtoB = AtoB * radiusOther + position;
+          BtoA = BtoA * radius + otherPosition;
           
-         
-          Vec3f direction = Vec3f(BtoA).subtract(AtoB);
+          Vec3f direction = BtoA - AtoB;
           Vec3f normal = Vec3f(direction).nor();
           return ManifoldPoints(AtoB, BtoA, normal, direction.len());
      }
@@ -2268,15 +2270,15 @@ namespace CollisionDetection {
           Vec3f lower = Vec3f(-other->width, -other->height, -other->depth);
           Vec3f upper = Vec3f(other->width, other->height, other->depth);
           
-          Vec3f closest = Vec3f(position).subtract(otherPosition).clamp(lower, upper).add(otherPosition);
+          Vec3f closest = (position - otherPosition).clamp(lower, upper) + otherPosition;
           float distance2 = closest.dst2(position);
           bool intersecting = distance2 <= (sphere->radius * sphere->radius);
           if (!intersecting || distance2 < 0.00001f) return ManifoldPoints();
           
-          Vec3f AtoB = Vec3f(closest).subtract(position).nor().multiply(sphere->radius).add(position);
+          Vec3f AtoB = (closest - position).nor() * sphere->radius + position;
           Vec3f BtoA = closest;
                    
-          Vec3f dir = Vec3f(BtoA).subtract(AtoB);
+          Vec3f dir = BtoA - AtoB;
           Vec3f normal = Vec3f(dir).nor();
           return ManifoldPoints(AtoB, BtoA, normal, dir.len());
      }
@@ -2290,24 +2292,24 @@ namespace CollisionDetection {
           Vec3f lower = Vec3f(-other->width, -other->height, -other->depth);
           Vec3f upper = Vec3f(other->width, other->height, other->depth);
           
-          Vec3f centerUnrotated = Vec3f(position).subtract(otherPosition);
+          Vec3f centerUnrotated = position - otherPosition;
           centerUnrotated = inverse.transform(centerUnrotated);
-          Vec3f closestUnrotated = Vec3f(centerUnrotated).clamp(lower, upper).add(otherPosition);
-          centerUnrotated = centerUnrotated.add(otherPosition);
+          Vec3f closestUnrotated = Vec3f(centerUnrotated).clamp(lower, upper) + otherPosition;
+          centerUnrotated = centerUnrotated + otherPosition;
           
           float distance2 = closestUnrotated.dst2(centerUnrotated);
           bool intersecting = distance2 <= (sphere->radius * sphere->radius);
           if (!intersecting || distance2 < 0.00001f) return ManifoldPoints();
           
-          Vec3f closestRotated = Vec3f(closestUnrotated).subtract(otherPosition);
+          Vec3f closestRotated = closestUnrotated - otherPosition;
           closestRotated = rotation.transform(closestRotated);
-          closestRotated = closestRotated.add(otherPosition);
+          closestRotated = closestRotated + otherPosition;
           
           
-          Vec3f AtoB = Vec3f(closestRotated).subtract(position).nor().multiply(sphere->radius).add(position);
+          Vec3f AtoB = (closestRotated - position).nor() * sphere->radius + position;
           Vec3f BtoA = closestRotated;
                    
-          Vec3f dir = Vec3f(BtoA).subtract(AtoB);
+          Vec3f dir = BtoA - AtoB;
           Vec3f normal = Vec3f(dir).nor();
           return ManifoldPoints(AtoB, BtoA, normal, dir.len());
      }
@@ -2345,7 +2347,7 @@ struct Object {
         transform->position = Vec3f(x, y, z);
     }
     void place_offset(float x, float y, float z) {
-        transform->position.add(Vec3f(x, y, z));
+        transform->position = transform->position + Vec3f(x, y, z);
     }
     
     void rotate(float roll, float pitch, float yaw) {
@@ -2391,9 +2393,7 @@ struct RigidBody : public Object {
     Tensor3x3 inverseInertia;
     
     RigidBody() : Object() {
-          velocity = Vec3f(0.0f, 0.0f, 0.0f);
-          force = Vec3f(0.0f, 0.0f, 0.0f);
-          torque = Vec3f(0.0f, 0.0f, 0.0f);
+          velocity = force = torque = Vec3f(0.0f, 0.0f, 0.0f);
           inertiaParameters = Vec3f(1.0f, 1.0f, 1.0f);
     }
     RigidBody(bool immovable) : RigidBody() {
@@ -2411,7 +2411,7 @@ struct RigidBody : public Object {
          force.z += z;
     }
     void apply_instant_torque(const Vec3f &location, const Vec3f &direction) {
-         Vec3f gradient = Vec3f(transform->position).subtract(location);
+         Vec3f gradient = transform->position - location;
          Vec3f amount = gradient.crs(direction);
          
          torque.x += amount.x;
@@ -2519,9 +2519,8 @@ struct PositionSolver : Solver {
                 int immovable2 = (int)object2->immovable;
                 
                 Vec3f normal = manifold.points.normal;
-                Vec3f displacement = Vec3f(normal).multiply(1 / (float)std::max(1, immovable1 + immovable2));
-                displacement = displacement.multiply(manifold.points.depth);
-                displacement = displacement.multiply(0.5f);
+                Vec3f displacement = normal * (1 / (float)std::max(1, immovable1 + immovable2));
+                displacement = displacement * manifold.points.depth * 0.5f;
                 
                 object1->transform->position.x -= displacement.x * (1 - immovable1);
                 object1->transform->position.y -= displacement.y * (1 - immovable1);
@@ -2547,17 +2546,17 @@ struct ElasticImpulseSolver : Solver {
                Vec3f position2 = object2->transform->position;
                
                Vec3f normal = manifold.points.normal;
-               Vec3f r1 = Vec3f(object1->transform->position).subtract(manifold.points.AtoB);
-               Vec3f r2 = Vec3f(object2->transform->position).subtract(manifold.points.BtoA);
+               Vec3f r1 = object1->transform->position - manifold.points.AtoB;
+               Vec3f r2 = object2->transform->position - manifold.points.BtoA;
                
-               Vec3f v1 = Vec3f(object1->velocity).add(r1.crs(object1->angularVelocity));
-               Vec3f v2 = Vec3f(object2->velocity).add(r2.crs(object2->angularVelocity));
-               Vec3f gradientVelocity = Vec3f(v1).subtract(v2);
+               Vec3f v1 = object1->velocity + r1.crs(object1->angularVelocity);
+               Vec3f v2 = object2->velocity + r2.crs(object2->angularVelocity);
+               Vec3f gradientVelocity = v1 - v2;
                
                Vec3f cp1 = (r1.crs(normal)).crs(r1);
                Vec3f cp2 = (r2.crs(normal)).crs(r2);
-               Vec3f inertia1 = object1->inverseInertia.multiply(cp1);
-               Vec3f inertia2 = object2->inverseInertia.multiply(cp2);
+               Vec3f inertia1 = object1->inverseInertia * cp1;
+               Vec3f inertia2 = object2->inverseInertia * cp2;
                        
                float dot = normal.dot(gradientVelocity);
                float dotInertia1 = normal.dot(inertia1);
@@ -2571,7 +2570,7 @@ struct ElasticImpulseSolver : Solver {
                    object1->velocity.y -= j * normal.y * object2->mass;
                    object1->velocity.z -= j * normal.z * object2->mass;
                    
-                   Vec3f direction = Vec3f(normal).multiply(j);
+                   Vec3f direction = normal * j;
                    object1->apply_instant_torque(manifold.points.AtoB, direction);
                }
                if (!object2->immovable) {
@@ -2579,7 +2578,7 @@ struct ElasticImpulseSolver : Solver {
                    object2->velocity.y += j * normal.y * object1->mass;
                    object2->velocity.z += j * normal.z * object1->mass;
                    
-                   Vec3f direction = Vec3f(normal).multiply(-j);
+                   Vec3f direction = normal * -j;
                    object2->apply_instant_torque(manifold.points.BtoA, direction);
                }
           }
@@ -2593,7 +2592,7 @@ struct GravityForce : ForceGenerator {
      
      GravityForce(Vec3f force) : force(force) {}
      void apply(RigidBody *object, float timeTook) override {
-          Vec3f acceleration = Vec3f(object->velocity).multiply(-1).add(force);
+          Vec3f acceleration = object->velocity * -1 + force;
           float mass = object->mass;
           
           object->force.x += acceleration.x * mass;
@@ -2610,7 +2609,7 @@ struct WindForce : ForceGenerator {
           this->direction.nor();
      }
      void apply(RigidBody *object, float timeTook) override {
-          Vec3f force = Vec3f(direction).multiply(strength);
+          Vec3f force = direction * strength;
           
           object->force.x += force.x * timeTook;
           object->force.y += force.y * timeTook;
@@ -2641,7 +2640,7 @@ struct SpringConstraint : Constraint {
           Vec3f velocity = object1->velocity;
           Vec3f otherVelocity = object2->velocity;
           
-          Vec3f direction = Vec3f(otherPosition).subtract(position);
+          Vec3f direction = otherPosition - position;
           float length2 = direction.len2();
           if (length2 > 0) {
               float length = sqrt(length2);
@@ -2653,7 +2652,7 @@ struct SpringConstraint : Constraint {
               float magnitude = (length - restLength) * stiffness;
               magnitude += (ax + ay + az) * damping / length;
               
-              Vec3f spring = Vec3f(direction).multiply(1 / length).multiply(magnitude);
+              Vec3f spring = direction * (magnitude / length);
               
               object1->force.x += spring.x;
               object1->force.y += spring.y;
@@ -2726,7 +2725,7 @@ class ObjectLevel {
                        Manifold manifold = Manifold(object1, object2, points);
                        bool trigger = object1->isTrigger || object2->isTrigger;
                            
-                       float dotProductGravity = Vec3f(points.normal).multiply(-1).dot(Vec3f(0.0f, -1.0f, 0.0f));
+                       float dotProductGravity = (points.normal * -1).dot(Vec3f(0.0f, -1.0f, 0.0f));
                        if (dotProductGravity > temporaryDot) {
                            normal = points.normal;
                            temporaryDot = dotProductGravity;
@@ -2763,7 +2762,7 @@ class ObjectLevel {
                             
                             Vec3f position = Vec3f(transform->position);
                             position = object2->transform->rotation.transform(position);
-                            position = position.add(object2->transform->position);
+                            position = position + object2->transform->position;
                             
                             Transform *newTransform = new Transform();
                             newTransform->position = position;
@@ -2775,9 +2774,9 @@ class ObjectLevel {
                             Manifold manifold = Manifold(object1, object2, points);
                             bool trigger = object1->isTrigger || object2->isTrigger;
                             
-                            float dotProductGravity = Vec3f(points.normal).multiply(-1).dot(Vec3f(0.0f, -1.0f, 0.0f));
+                            float dotProductGravity = (points.normal * -1).dot(Vec3f(0.0f, -1.0f, 0.0f));
                             if (dotProductGravity < temporaryDot) {
-                                 normal = Vec3f(points.normal).multiply(-1);
+                                 normal = points.normal * -1;
                                  temporaryDot = dotProductGravity;
                             }
                             
@@ -2851,10 +2850,10 @@ class PhysicsLevel : public ObjectLevel {
                   Vec3f params = body->inertiaParameters;
                   body->calculate_inertia_tensor(params.x, params.y, params.z);
                   
-                  body->force.set_zero();
+                  body->force = Vec3f(0.0f, 0.0f, 0.0f);
                   if (body->immovable) {
-                       body->velocity.set_zero();
-                       body->angularVelocity.set_zero();
+                       body->velocity = Vec3f(0.0f, 0.0f, 0.0f);
+                       body->angularVelocity = Vec3f(0.0f, 0.0f, 0.0f);
                   }
                   
                   for (auto &force : forces) {
@@ -2986,7 +2985,7 @@ class Level {
             level.add_object(ball);
            
             if (levelIndex == 0) {
-                       ball->place(2.0f, 10.0f, 0.0f);
+                       ball->place(2.0f, 100.0f, 0.0f);
                        
                        add_box(Vec3f(0.0f, -1.0f, 0.0f), 10.0f, 0.5f, 10.0f, "grass.png", Materials::grass);
                        add_box(Vec3f(-17.0f, -1.0f, 0.0f), 4.0f, 0.5f, 0.5f, "grass.png", Materials::grass);
@@ -3098,7 +3097,7 @@ class Level {
                        if (group != nullptr) {
                             for (auto &pair : group->colliders) {
                                  BoxCollider *collider = (BoxCollider*) pair.first;
-                                 Vec3f pos = Vec3f(pair.second->position).add(object->transform->position);
+                                 Vec3f pos = pair.second->position + object->transform->position;
                                  BatchRenderer::draw_box_outline(pos.x, pos.y, pos.z, collider->width, collider->height, collider->depth, object->transform->rotation, highlight); 
                        
                             }
@@ -3311,17 +3310,19 @@ class BallControls {
         void handle_event(SDL_Event ev, float timeTook) {
             int w = 0, h = 0;
             SDL_GetWindowSize(windows, &w, &h);
-            Vec2i click = this->get_mouse_position(ev);
-           
+            
+            int clickX, clickY;
+            SDL_GetMouseState(&clickX, &clickY);
+            
             if (ev.type == SDL_MOUSEMOTION) {       
                 float sensitivity = 0.1f;
                 if (orbits) {
-                    if (click.y < h / 2) {
+                    if (clickY < h / 2) {
                         camera->rotationX -= ev.motion.xrel * sensitivity * timeTook;
                         camera->rotationY += ev.motion.yrel * sensitivity * timeTook;
                     }
                 } else {
-                    if (click.y < h / 2) {
+                    if (clickY < h / 2) {
                         camera->rotationX -= ev.motion.xrel * sensitivity * timeTook;
                         camera->rotationY -= ev.motion.yrel * sensitivity * timeTook;
                     }
@@ -3333,22 +3334,22 @@ class BallControls {
                 if (camera->rotationY > (89.0f / 180.0f * M_PI)) camera->rotationY = (89.0f / 180.0f * M_PI);
                 if (camera->rotationY < -(89.0f / 180.0f * M_PI)) camera->rotationY = -(89.0f / 180.0f * M_PI);
               
-                float s = 7.0f;
+                float speed = 7.0f;
                 Vec3f vel = Vec3f(cos(camera->rotationX),
                                   0.0f,
                                   sin(camera->rotationX));
-                Vec3f v = vel.multiply(s * timeTook);
-                if (orbits) v = v.multiply(-1);
+                Vec3f v = vel * speed * timeTook;
+                if (orbits) v = v * -1;
                 
-                if (click.y > h / 2 && click.x < w / 2) {
-                    ball->velocity.add(v);
+                if (clickY > h / 2 && clickX < w / 2) {
+                    ball->velocity = ball->velocity + v;
                 }
-                else if (click.y > h / 2 && click.x > w / 2) {
-                    ball->velocity.subtract(v);
+                else if (clickY > h / 2 && clickX > w / 2) {
+                    ball->velocity = ball->velocity - v;
                 }
             }
             if (ev.type == SDL_MOUSEBUTTONUP) {
-                if (click.y > h / 1.3f) {
+                if (clickY > h / 1.3f) {
                      jump(Vec3f(0.0f, -1.0f, 0.0f));
                 }
             }
@@ -3360,18 +3361,18 @@ class BallControls {
             Vec3f normal = ball->collidingNormal;
             
             if (normal.dot(gravity) < 0) {
-                 Vec3f offset = Vec3f(normal).multiply(0.1f);
-                 Vec3f velocity = Vec3f(normal).multiply(strength);
+                 Vec3f offset = normal * 0.1f;
+                 Vec3f velocity = normal * strength;
                  
-                 ball->transform->position.add(offset);
-                 ball->velocity.add(Vec3f(velocity).multiply(1 / ball->mass));
+                 ball->transform->position = ball->transform->position + offset;
+                 ball->velocity = ball->velocity + (velocity * (1 / ball->mass));
                  
                  
                  RigidBody *body = dynamic_cast<RigidBody*>(ball->collidingObject);
                  if (body != nullptr) {
                       if (!body->immovable) {
-                           Vec3f impulse = Vec3f(velocity).multiply(1 / body->mass);
-                           body->velocity.subtract(impulse);
+                           Vec3f impulse = velocity * (1 / body->mass);
+                           body->velocity = ball->velocity - impulse;
                            body->apply_instant_torque(ball->lastManifoldPoints.AtoB, impulse);
                       }
                       body->collidingObject = 0;
@@ -3383,19 +3384,11 @@ class BallControls {
         void update() {
             if (orbits) {
                  float distance = 5.0f;
-                 camera->lookingAt = Vec3f(ball->transform->position);
-                 camera->position = Vec3f(ball->transform->position).add(Vec3f(cos(camera->rotationX) * cos(camera->rotationY) * distance, sin(camera->rotationY) * distance, sin(camera->rotationX) * cos(camera->rotationY) * distance));
+                 camera->lookingAt = ball->transform->position;
+                 camera->position = ball->transform->position + Vec3f(cos(camera->rotationX) * cos(camera->rotationY) * distance, sin(camera->rotationY) * distance, sin(camera->rotationX) * cos(camera->rotationY) * distance);
             } else {
-                 camera->position = Vec3f(ball->transform->position);
+                 camera->position = ball->transform->position;
             }
-        }
-        
-        Vec2i get_mouse_position(SDL_Event event) {
-            int dx = 0, dy = 0;
-            SDL_GetMouseState(&dx, &dy);
-            Vec2i result = { dx, dy };
-           
-            return result;
         }
     private:
         SphereObject *ball;
