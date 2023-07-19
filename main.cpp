@@ -2200,17 +2200,22 @@ struct Transform {
 
 
 struct Collider {
-     // Collider-collider
-     virtual ManifoldPoints test(Transform *transform, Collider *collider, Transform *otherTransform) = 0;
-     // Collider-sphere
-     virtual ManifoldPoints test(Transform *transform, SphereCollider *sphereCollider, Transform *otherTransform) = 0;
-     // Collider-box
-     virtual ManifoldPoints test(Transform *transform, BoxCollider *boxCollider, Transform *otherTransform) = 0;
-     // Collider-mesh
-     virtual ManifoldPoints test(Transform *transform, MeshCollider *meshCollider, Transform *otherTransform) = 0;
+     public:
+         float boundingRadius = 0.0f;
+         
+         // Collider-collider
+         virtual ManifoldPoints test(Transform *transform, Collider *collider, Transform *otherTransform) = 0;
+         // Collider-sphere
+         virtual ManifoldPoints test(Transform *transform, SphereCollider *sphereCollider, Transform *otherTransform) = 0;
+         // Collider-box
+         virtual ManifoldPoints test(Transform *transform, BoxCollider *boxCollider, Transform *otherTransform) = 0;
+         // Collider-mesh
+         virtual ManifoldPoints test(Transform *transform, MeshCollider *meshCollider, Transform *otherTransform) = 0;
      
-     // Assuming an unit direction
-     virtual Vec3f support_point(Transform *transform, Vec3f direction) = 0;
+         // Assuming an unit direction
+         virtual Vec3f support_point(Transform *transform, Vec3f direction) = 0;
+         // Bounding sphere radius
+         virtual float compute_bounding() = 0;
 };
 
 // Adapted from https://blog.winter.dev/#articles
@@ -2489,6 +2494,9 @@ struct SphereCollider : Collider {
      Vec3f support_point(Transform *transform, Vec3f direction) override {
            return transform->position + (direction.nor()) * radius;
      }
+     float compute_bounding() override {
+           return radius;
+     }
 };
 
 struct BoxCollider : Collider {
@@ -2532,7 +2540,8 @@ struct BoxCollider : Collider {
      }
      // Box-box
      ManifoldPoints test(Transform *transform, BoxCollider *boxCollider, Transform *otherTransform) override { 
-           return CollisionDetection::GJK(this, transform, (Collider*)boxCollider, otherTransform);
+           //return CollisionDetection::GJK(this, transform, (Collider*)boxCollider, otherTransform);
+           return ManifoldPoints();
      }
      // Box-Mesh
      ManifoldPoints test(Transform *transform, MeshCollider *meshCollider, Transform *otherTransform) override {
@@ -2556,6 +2565,9 @@ struct BoxCollider : Collider {
            }
            
            return result;
+     }
+     float compute_bounding() override {
+           return sqrt(width*width + height*height + depth*depth);
      }
         
      bool contains_point(Transform *transform, const Vec3f &point) {
@@ -2626,6 +2638,19 @@ struct MeshCollider : Collider {
            
            return result;
      }
+     float compute_bounding() override {
+           float maxRadius = -10000.0f;
+           
+           for (auto &vertex : vertices) {
+                 float distance = vertex.len2();
+                 if (distance > maxRadius) {
+                      maxRadius = distance;
+                 }
+           }
+           maxRadius = sqrt(maxRadius);
+           
+           return maxRadius;
+     }
 };
 struct ColliderGroup : Collider {
      std::vector<std::pair<Collider*, Transform*>> colliders;
@@ -2654,7 +2679,25 @@ struct ColliderGroup : Collider {
      Vec3f support_point(Transform *transform, Vec3f direction) override {
           return Vec3f(0.0f, 0.0f, 0.0f);
      }
-
+     float compute_bounding() override {
+          float maxDistance = -10000.0f;
+          Collider *furthest = nullptr;
+          
+          for (auto &pair : colliders) {
+               float distance = pair.second->position.len2();
+               if (distance > maxDistance) {
+                    maxDistance = distance;
+                    furthest = pair.first;
+               }
+          }
+          maxDistance = sqrt(maxDistance);
+          
+          float radius = furthest->compute_bounding();
+          float result = maxDistance + radius;
+          
+          return result;
+     }
+     
      void append(Collider *collider, Transform *location) {
           colliders.emplace_back(std::make_pair(collider, location));
      }
@@ -2762,9 +2805,8 @@ struct Object {
         transform = new Transform();
         mesh = new Mesh();
     }
-    Object(bool immovable) : immovable(immovable) {
-        transform = new Transform();
-        mesh = new Mesh();
+    Object(bool immovable) : Object() {
+        this->immovable = immovable;
     }
     virtual ~Object() {}
     
@@ -3119,6 +3161,9 @@ class ObjectLevel {
         
         void add_object(Object *body) {
              body->index = lastIndex;
+             if (body->collider) {
+                  body->collider->boundingRadius = body->collider->compute_bounding();
+             }
              
              objects.push_back(body);
              lastIndex++;
@@ -3155,6 +3200,11 @@ class ObjectLevel {
                        if (!object1->collider || !object2->collider) continue;
                        if (object1->immovable && object2->immovable) continue;
                        
+                       float radius1 = object1->collider->boundingRadius;
+                       float radius2 = object2->collider->boundingRadius;
+                       float distance2 = object1->transform->position.dst2(object2->transform->position);
+                       if (distance2 > (radius1 + radius2) * (radius1 + radius2)) continue;
+                       
                        ManifoldPoints points = object1->collider->test(object1->transform, object2->collider, object2->transform);
                        if (!points.collided) continue;
                             
@@ -3187,6 +3237,11 @@ class ObjectLevel {
                        if (object1->index == object2->index) continue;
                        if (!object1->collider || !object2->collider) continue;
                        if (object1->immovable && object2->immovable) continue;
+                       
+                       float radius1 = object1->collider->boundingRadius;
+                       float radius2 = object2->collider->boundingRadius;
+                       float distance2 = object1->transform->position.dst2(object2->transform->position);
+                       if (distance2 > (radius1 + radius2) * (radius1 + radius2)) continue;
                        
                        ColliderGroup *group = dynamic_cast<ColliderGroup*>(object2->collider);
                        
@@ -3407,10 +3462,7 @@ class Level {
             
             level.load();
                          
-            
             ball = new SphereObject(0.35f);
-            //ball = new Ball_t("resources/objects/dodecahedron_TESS.obj");
-            
             ball->set_material(Materials::aluminium);
             ball->set_restitution(0.2f);
             
@@ -3476,8 +3528,6 @@ class Level {
                        
                        MeshObject *mesh = add_mesh_object(Vec3f(-2.0f, 1.5f, 0.0f), "icosahedron_TESS.obj", "", Materials::copper);
                        mesh->set_immovable(false);
-                       
-                       
                        
                        bowl->set_mass(1.0f);
                        bowl->set_immovable(false);
@@ -3876,6 +3926,8 @@ class Aluminium3D : public Game {
     int fps = 0;
     float framesPerSecond = 0.0f;
     float lastTime = 0.0f;
+    bool orbitMode = true;
+           
     public:  
        void init() override {
            displayName = "Aluminium 3D";
@@ -3887,7 +3939,6 @@ class Aluminium3D : public Game {
            BatchRenderer::load();
            Level::get().load();
            
-           bool orbitMode = true;
            
            camera = new Camera();
            camera->useRotation = !orbitMode;
@@ -3923,7 +3974,7 @@ class Aluminium3D : public Game {
                      levelIndex++;
                      Level::get().start(levelIndex);
                      controls = new BallControls(camera, Level::get().get_ball());
-                     controls->orbits = true;
+                     controls->orbits = orbitMode;
                      
                      completedTimer = 0.0f;
                      timer = 0.0f;
