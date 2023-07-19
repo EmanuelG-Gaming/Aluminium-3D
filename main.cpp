@@ -6,6 +6,7 @@
 #include <vector>
 #include <array>
 #include <map>
+#include <initializer_list>
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
@@ -263,12 +264,8 @@ class Mat4x4 {
            values[M32] = -(far + near) / (far - near);
        }
        void set_look_at(Vec3f cameraPosition, Vec3f lookingAt, Vec3f up) {
-           Vec3f fwd = Vec3f(cameraPosition.x - lookingAt.x,
-                             cameraPosition.y - lookingAt.y,
-                             cameraPosition.z - lookingAt.z).nor();
-           
+           Vec3f fwd = (cameraPosition - lookingAt).nor();                
            Vec3f cameraXAxis = fwd.crs(up).nor();
-           
            Vec3f cameraYAxis = cameraXAxis.crs(fwd);
            
            identity();
@@ -544,6 +541,33 @@ struct Quaternion {
          r.w = newW;
          return r;
     }
+};
+
+struct Simplex {
+    public:
+         Simplex() : vertices({ Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f) }), currentSize(0) {}
+         
+         
+         void push_front(const Vec3f &point) {
+              vertices = { point, vertices[0], vertices[1], vertices[2] };
+              currentSize = std::min(currentSize + 1, 4);
+         }
+         int size() { return currentSize; }
+         auto begin() { return vertices.begin(); }
+         auto end() { return vertices.end() - (4 - currentSize); }
+         
+         Simplex &operator=(std::initializer_list<Vec3f> from) {
+              for (auto position = from.begin(); position != from.end(); position++) {
+                   vertices[std::distance(from.begin(), position)] = *position;
+              }
+              
+              currentSize = from.size();
+              return *this;
+         }
+         Vec3f &operator[](int index) { return vertices[index]; }
+    private:
+         std::array<Vec3f, 4> vertices;
+         int currentSize;
 };
 
 struct CharacterInfo {
@@ -1722,12 +1746,16 @@ namespace MeshGenerator {
                   stream >> faceIndices[0] >> faceIndices[1] >> faceIndices[2];
                   
                   for (int i = 0; i < 3; i++) {
-                       GLuint indexPosition, indexUV, indexNormal;
-                       sscanf(faceIndices[i].c_str(), "%d/%d/%d", &indexPosition, &indexUV, &indexNormal);
+                       GLuint indexPosition = 0, indexUV = 0, indexNormal = 0;
+                       int scans = sscanf(faceIndices[i].c_str(), "%d/%d/%d", &indexPosition, &indexUV, &indexNormal);
+                       if (scans != 3) {
+                           sscanf(faceIndices[i].c_str(), "%d//%d", &indexPosition, &indexNormal);
+                           indexUV = 0;
+                       }
                        indexPosition--; indexUV--; indexNormal--;
                        
                        vertexIndices.push_back(indexPosition);
-                       uvIndices.push_back(indexUV);
+                       if (indexUV != -1) uvIndices.push_back(indexUV);
                        normalIndices.push_back(indexNormal);
                   }
               }
@@ -1736,13 +1764,18 @@ namespace MeshGenerator {
           // Build model
           MeshStructure structure;
           for (int i = 0; i < vertexIndices.size(); i++) {
-              GLuint indexPosition = vertexIndices.at(i);
-              GLuint indexUV = uvIndices.at(i);
-              GLuint indexNormal = normalIndices.at(i);
-              
-              MeshVertex vertex = MeshVertex(positions.at(indexPosition), normals.at(indexNormal), textureCoordinates.at(indexUV));
-              structure.vertices.push_back(vertex);
+              structure.vertices.push_back(MeshVertex());
           }
+          for (int i = 0; i < vertexIndices.size(); i++) {
+              structure.vertices.at(i).Position = positions.at(vertexIndices.at(i));
+          }
+          for (int i = 0; i < uvIndices.size(); i++) {
+              structure.vertices.at(i).TextureCoords = textureCoordinates.at(uvIndices.at(i));
+          }
+          for (int i = 0; i < normalIndices.size(); i++) {
+              structure.vertices.at(i).Normal = normals.at(normalIndices.at(i));
+          }
+              
           source->unuse_indices();
           source->set_structure(structure);
      } 
@@ -1846,6 +1879,35 @@ namespace MeshGenerator {
          return result;
      }
      
+     std::vector<Vec3f> load_vertices(const std::string &objName) {
+         std::ifstream objRead(objName);
+         std::vector<Vec3f> positions;
+         
+         if (!objRead.is_open() || objRead.fail()) {
+              printf("Couldn't open the .obj file.\n");
+              return positions;
+         }   
+       
+         std::string line; 
+         while (std::getline(objRead, line)) {
+              if (!line.compare("") || !line.compare(" ")) {
+                  continue;
+              }
+              
+              std::istringstream stream(line);
+              std::string key;
+              stream >> key;
+              
+              // Vertex position
+              if (!key.compare("v")) {
+                  Vec3f position;
+                  stream >> position.x >> position.y >> position.z;
+                  
+                  positions.push_back(position);
+              }
+          }
+          return positions;
+     }
      
      Vec3f generate_bounding_box_sizes(const MeshStructure &source) {
           MeshStructure structure = source;
@@ -2099,6 +2161,7 @@ namespace BatchRenderer {
 static struct Collider;
 static struct SphereCollider;
 static struct BoxCollider;
+static struct MeshCollider;
 static struct ColliderGroup;
 
 static struct Manifold;
@@ -2135,12 +2198,6 @@ struct Transform {
       }
 };
 
-namespace CollisionDetection {
-     ManifoldPoints sphere_sphere(SphereCollider *sphere, Transform *transform, SphereCollider *other, Transform *otherTransform);
-     ManifoldPoints sphere_AABB(SphereCollider *sphere, Transform *transform, BoxCollider *other, Transform *otherTransform);
-     ManifoldPoints sphere_OBB(SphereCollider *sphere, Transform *transform, BoxCollider *other, Transform *otherTransform);
-     
-};
 
 struct Collider {
      // Collider-collider
@@ -2149,6 +2206,262 @@ struct Collider {
      virtual ManifoldPoints test(Transform *transform, SphereCollider *sphereCollider, Transform *otherTransform) = 0;
      // Collider-box
      virtual ManifoldPoints test(Transform *transform, BoxCollider *boxCollider, Transform *otherTransform) = 0;
+     // Collider-mesh
+     virtual ManifoldPoints test(Transform *transform, MeshCollider *meshCollider, Transform *otherTransform) = 0;
+     
+     // Assuming an unit direction
+     virtual Vec3f support_point(Transform *transform, Vec3f direction) = 0;
+};
+
+// Adapted from https://blog.winter.dev/#articles
+namespace GJK {
+      float MAX_VALUE = 10000.0f;
+      float COLLISION_THRESHOLD = 0.001f;
+      int MAX_ITERATION_COUNT = 10;
+      
+      struct PolytopeResult {
+            Vec3f vector;
+            float distance;
+            
+            PolytopeResult() {}
+            PolytopeResult(Vec3f vector, float distance) : vector(vector), distance(distance) {}
+      };
+      
+      // ----- GJK -----
+      // Returns a support point on the Minkovski difference of two colliders
+      Vec3f get_support_point_minkovski(Collider *collider, Collider *other, Transform *transform, Transform *otherTransform, Vec3f direction) {
+            Vec3f support1 = collider->support_point(transform, direction);
+            Vec3f support2 = other->support_point(otherTransform, direction * -1);
+            
+            return support1 - support2;
+      }
+      
+      bool same_direction(const Vec3f &direction, const Vec3f &AtoOrigin) {
+            Vec3f dir = direction;
+            return dir.dot(AtoOrigin) > 0;
+      }
+      
+      bool test_line(Simplex &points, Vec3f &direction) {
+            Vec3f a = points[0], b = points[1];
+            
+            Vec3f gradient = b - a;
+            Vec3f AtoOrigin = a * -1;
+            
+            if (same_direction(gradient, AtoOrigin)) {
+                 direction = gradient.crs(AtoOrigin).crs(gradient);
+            } else {
+                 points = { a };
+                 direction = AtoOrigin;
+            }
+            
+            return false;
+      }
+      bool test_triangle(Simplex &points, Vec3f &direction) {
+            Vec3f a = points[0], b = points[1], c = points[2];
+            
+            Vec3f ab = b - a,
+                  ac = c - a,
+                  AtoOrigin = a * -1;
+            Vec3f abc = ab.crs(ac);
+            
+            if (same_direction(abc.crs(ac), AtoOrigin)) {
+                 if (same_direction(ac, AtoOrigin)) {
+                      points = { a, c };
+                      direction = ac.crs(AtoOrigin).crs(ac);
+                 } else return test_line(points = { a, b }, direction);
+            } else {
+                 if (same_direction(ab.crs(abc), AtoOrigin)) return test_line(points = { a, b }, direction);
+                 else {
+                      if (same_direction(abc, AtoOrigin)) direction = abc;
+                      else {
+                           points = { a, c, b };
+                           direction = abc * -1;
+                      }
+                 }
+            }
+            
+            return false;
+      }
+      bool test_tetrahedron(Simplex &points, Vec3f &direction) {
+            Vec3f a = points[0], b = points[1], c = points[2], d = points[3];
+            
+            Vec3f ab = b - a, 
+                  ac = c - a,
+                  ad = d - a,
+                  AtoOrigin = a * -1;
+                  
+            Vec3f abc = ab.crs(ac),
+                  acd = ac.crs(ad),
+                  adb = ad.crs(ab);
+            
+            if (same_direction(abc, AtoOrigin)) return test_triangle(points = { a, b, c }, direction);
+            if (same_direction(acd, AtoOrigin)) return test_triangle(points = { a, c, d }, direction);
+            if (same_direction(adb, AtoOrigin)) return test_triangle(points = { a, d, b }, direction);
+            
+            return true;
+      }
+      
+      bool next_simplex(Simplex &points, Vec3f &direction) {
+            switch (points.size()) {
+                 case 2: return test_line(points, direction);
+                 case 3: return test_triangle(points, direction);
+                 case 4: return test_tetrahedron(points, direction);
+            }
+            return false;
+      }
+      // Whether or not the Minkovski difference contains the origin
+      bool contains_origin(Simplex &points, Collider *collider, Collider *other, Transform *transform, Transform *otherTransform) {
+            Vec3f support = get_support_point_minkovski(collider, other, transform, otherTransform, Vec3f(1.0f, 0.0f, 0.0f));
+            Vec3f direction = support * -1;
+          
+            points.push_front(support);
+            
+            while (true) {
+                  support = get_support_point_minkovski(collider, other, transform, otherTransform, direction);
+                  if (support.dot(direction) <= 0) return false;
+                  
+                  points.push_front(support);
+                  if (next_simplex(points, direction)) return true;
+            }
+      }
+      
+      // ----- EPA -----
+      std::pair<std::vector<PolytopeResult>, GLuint> get_polytope_normals(const std::vector<Vec3f> &polytope, const std::vector<GLuint> &faces) {
+            std::vector<PolytopeResult> normals;
+            GLuint minimumFace = 0;
+            float minimumDistance = MAX_VALUE;
+            
+            for (int i = 0; i < faces.size(); i += 3) {
+                 Vec3f a = polytope[faces[i]];
+                 Vec3f b = polytope[faces[i + 1]];
+                 Vec3f c = polytope[faces[i + 2]];
+                 
+                 Vec3f normal = (b - a).crs(c - a).nor();
+                 float dot = normal.dot(a);
+                 
+                 if (dot < 0) {
+                      normal = normal * -1;
+                      dot = dot * -1;
+                 }
+                 
+                 normals.emplace_back(PolytopeResult(normal, dot));
+                 if (dot < minimumDistance) {
+                      minimumFace = i / 3;
+                      minimumDistance = dot;
+                 }
+            }
+            return { normals, minimumFace };
+      }
+      
+      void add_unique_edge(std::vector<std::pair<GLuint, GLuint>> &edges, const std::vector<GLuint> &faces, GLuint a, GLuint b) {
+            auto reverse = std::find(edges.begin(), edges.end(), std::make_pair(faces[b], faces[a]));
+            
+            if (reverse != edges.end()) {
+                 edges.erase(reverse);
+            } else {
+                 edges.emplace_back(faces[a], faces[b]);
+            }
+      }
+      
+      ManifoldPoints expanding_polytope(Simplex &simplex, Collider *collider, Collider *other, Transform *transform, Transform *otherTransform) {
+            int iterations = 0;
+            
+            std::vector<Vec3f> polytope(simplex.begin(), simplex.end());
+            
+            std::vector<GLuint> faces = {
+                 0, 1, 2,
+                 0, 3, 1,
+                 0, 2, 3,
+                 1, 3, 2
+            };
+            auto [normals, minimumFace] = get_polytope_normals(polytope, faces);
+            
+            Vec3f minimumNormal;
+            float minimumDistance = MAX_VALUE;
+            
+            while (minimumDistance == MAX_VALUE) {
+                  minimumNormal = normals[minimumFace].vector;
+                  minimumDistance = normals[minimumFace].distance;
+                  
+                  if (iterations++ > MAX_ITERATION_COUNT) {
+                       break;
+                  }
+                  
+                  Vec3f support = get_support_point_minkovski(collider, other, transform, otherTransform, minimumNormal);
+                  float dot = support.dot(minimumNormal);
+                  
+                  if (abs(dot - minimumDistance) > COLLISION_THRESHOLD) {
+                       minimumDistance = MAX_VALUE;
+                       
+                       std::vector<std::pair<GLuint, GLuint>> uniqueEdges;
+                       for (int i = 0; i < normals.size(); i++) {
+                            if (!same_direction(normals[i].vector, support)) continue;
+                            
+                            int f = i * 3;
+                            add_unique_edge(uniqueEdges, faces, f, f + 1);
+                            add_unique_edge(uniqueEdges, faces, f + 1, f + 2);
+                            add_unique_edge(uniqueEdges, faces, f + 2, f);
+                            
+                            faces[f + 2] = faces.back(); faces.pop_back();
+                            faces[f + 1] = faces.back(); faces.pop_back();
+                            faces[f] = faces.back(); faces.pop_back();
+                            
+                            normals[i] = normals.back(); normals.pop_back();
+                            
+                            i--;
+                       }
+                       
+                       if (uniqueEdges.size() == 0) {
+                            break;
+                       }
+                       
+                       std::vector<GLuint> newFaces;
+                       for (auto [edgeIndex1, edgeIndex2] : uniqueEdges) {
+                            newFaces.push_back(edgeIndex1);
+                            newFaces.push_back(edgeIndex2);
+                            newFaces.push_back(polytope.size());
+                       }
+                       polytope.push_back(support);
+                       
+                       
+                       auto [newNormals, newMinimumFace] = get_polytope_normals(polytope, newFaces);
+                       float newMinimumDistance = MAX_VALUE;
+                       
+                       for (int i = 0; i < normals.size(); i++) {
+                            if (normals[i].distance < newMinimumDistance) {
+                                 newMinimumDistance = normals[i].distance;
+                                 minimumFace = i;
+                            }
+                       }
+                       
+                       if (newNormals[newMinimumFace].distance < newMinimumDistance) {
+                            minimumFace = newMinimumFace + normals.size();
+                       }
+                       
+                       faces.insert(faces.end(), newFaces.begin(), newFaces.end());
+                       normals.insert(normals.end(), newNormals.begin(), newNormals.end());
+                  }
+            }
+            if (minimumDistance == MAX_VALUE) {
+                  return ManifoldPoints();
+            }
+            
+            ManifoldPoints result;
+            result.normal = minimumNormal * -1;
+            result.depth = minimumDistance + COLLISION_THRESHOLD;
+            result.collided = true;
+            result.AtoB = otherTransform->position;
+            result.BtoA = transform->position;
+            
+            return result;
+      }
+};
+
+namespace CollisionDetection {
+      ManifoldPoints sphere_sphere(SphereCollider *sphere, Transform *transform, SphereCollider *other, Transform *otherTransform);
+      ManifoldPoints sphere_AABB(SphereCollider *sphere, Transform *transform, BoxCollider *other, Transform *otherTransform);
+      ManifoldPoints sphere_OBB(SphereCollider *sphere, Transform *transform, BoxCollider *other, Transform *otherTransform);
+      ManifoldPoints GJK(Collider *collider, Transform *transform, Collider *other, Transform *otherTransform);
 };
 
 struct SphereCollider : Collider {
@@ -2168,13 +2481,37 @@ struct SphereCollider : Collider {
      ManifoldPoints test(Transform *transform, BoxCollider *aabbCollider, Transform *otherTransform) override {
            return CollisionDetection::sphere_OBB(this, transform, aabbCollider, otherTransform);
      }
+     // Sphere-Mesh
+     ManifoldPoints test(Transform *transform, MeshCollider *meshCollider, Transform *otherTransform) override {
+           return CollisionDetection::GJK(this, transform, (Collider*)meshCollider, otherTransform);
+     }
+     
+     Vec3f support_point(Transform *transform, Vec3f direction) override {
+           return transform->position + (direction.nor()) * radius;
+     }
 };
 
 struct BoxCollider : Collider {
      float width, height, depth;
+     std::vector<Vec3f> vertices;
+     
      BoxCollider() {}
-     BoxCollider(float width, float height, float depth) : width(width), height(height), depth(depth) {}
-     BoxCollider(Vec3f size) : width(size.x), height(size.y), depth(size.z) {}
+     BoxCollider(float width, float height, float depth) : width(width), height(height), depth(depth) {
+          this->vertices = {
+               Vec3f(-width, -height, -depth),
+               Vec3f(width, -height, -depth),
+               Vec3f(width, -height, depth),
+               Vec3f(-width, -height, depth),
+               
+               Vec3f(-width, height, -depth),
+               Vec3f(width, height, -depth),
+               Vec3f(width, height, depth),
+               Vec3f(-width, height, depth),
+          };
+     }
+     BoxCollider(Vec3f size) : BoxCollider(size.x, size.y, size.z) {
+          
+     }
      
      // Box-collider
      ManifoldPoints test(Transform *transform, Collider *collider, Transform *otherTransform) override { 
@@ -2193,11 +2530,33 @@ struct BoxCollider : Collider {
            
            return points;
      }
-     // No Box-box
-     ManifoldPoints test(Transform *transform, BoxCollider *aabbCollider, Transform *otherTransform) override { 
-           return ManifoldPoints();
+     // Box-box
+     ManifoldPoints test(Transform *transform, BoxCollider *boxCollider, Transform *otherTransform) override { 
+           return CollisionDetection::GJK(this, transform, (Collider*)boxCollider, otherTransform);
      }
-    
+     // Box-Mesh
+     ManifoldPoints test(Transform *transform, MeshCollider *meshCollider, Transform *otherTransform) override {
+           return CollisionDetection::GJK(this, transform, (Collider*)meshCollider, otherTransform);
+     }
+     
+     Vec3f support_point(Transform *transform, Vec3f direction) override {
+           Vec3f result = Vec3f(0.0f, 0.0f, 0.0f);
+           float maxDot = -10000.0f;
+            
+           for (auto &vertex : vertices) {
+                 Vec3f point = vertex;
+                 point = transform->rotation.transform(point);
+                 point = point + transform->position;
+                 
+                 float dot = direction.dot(point);
+                 if (dot > maxDot) {
+                      result = point;
+                      maxDot = dot;
+                 }
+           }
+           
+           return result;
+     }
         
      bool contains_point(Transform *transform, const Vec3f &point) {
            return (point.x >= transform->position.x - width && point.x <= transform->position.x + width) &&
@@ -2205,7 +2564,69 @@ struct BoxCollider : Collider {
                   (point.z >= transform->position.z - depth && point.z <= transform->position.z + depth);
      }
 };
-
+struct MeshCollider : Collider {
+     std::vector<Vec3f> vertices;
+     
+     MeshCollider() {}
+     MeshCollider(const std::vector<Vec3f> &vertices) : vertices(vertices) {}
+     
+     // Mesh-collider
+     ManifoldPoints test(Transform *transform, Collider *collider, Transform *otherTransform) override {
+           return collider->test(otherTransform, this, transform); 
+     }
+     
+     // Mesh-sphere
+     ManifoldPoints test(Transform *transform, SphereCollider *sphereCollider, Transform *otherTransform) override {
+           // Reuse sphere code
+           ManifoldPoints points = sphereCollider->test(otherTransform, this, transform);
+           
+           // Swap the points, so that the collision might not break
+           Vec3f temporary = points.AtoB;
+           points.AtoB = points.BtoA;
+           points.BtoA = temporary;
+           points.normal = points.normal * -1;
+           
+           return points;
+     }
+     
+     // Mesh-box
+     ManifoldPoints test(Transform *transform, BoxCollider *boxCollider, Transform *otherTransform) override {
+           // Reuse box code
+           ManifoldPoints points = boxCollider->test(otherTransform, this, transform);
+           
+           // Swap the points, so that the collision might not break
+           Vec3f temporary = points.AtoB;
+           points.AtoB = points.BtoA;
+           points.BtoA = temporary;
+           points.normal = points.normal * -1;
+           
+           return points;
+     }
+     
+     // Mesh-mesh
+     ManifoldPoints test(Transform *transform, MeshCollider *meshCollider, Transform *otherTransform) override {
+           return CollisionDetection::GJK(this, transform, (Collider*)meshCollider, otherTransform);
+     }
+     
+     Vec3f support_point(Transform *transform, Vec3f direction) override {
+           Vec3f result = Vec3f(0.0f, 0.0f, 0.0f);
+           float maxDot = -10000.0f;
+            
+           for (auto &vertex : vertices) {
+                 Vec3f point = vertex;
+                 point = transform->rotation.transform(point);
+                 point = point + transform->position;
+           
+                 float dot = direction.dot(point);
+                 if (dot > maxDot) {
+                      result = point;
+                      maxDot = dot;
+                 }
+           }
+           
+           return result;
+     }
+};
 struct ColliderGroup : Collider {
      std::vector<std::pair<Collider*, Transform*>> colliders;
      
@@ -2213,11 +2634,11 @@ struct ColliderGroup : Collider {
      
      // Group-collider
      ManifoldPoints test(Transform *transform, Collider *collider, Transform *otherTransform) override {
-          return collider->test(otherTransform, this, transform); 
+          return ManifoldPoints();
      }
      
      // Group-sphere
-     ManifoldPoints test(Transform *transform, SphereCollider *sphereCollider, Transform *otherTransform) {
+     ManifoldPoints test(Transform *transform, SphereCollider *sphereCollider, Transform *otherTransform) override {
           return ManifoldPoints();
      }
      
@@ -2225,8 +2646,14 @@ struct ColliderGroup : Collider {
      ManifoldPoints test(Transform *transform, BoxCollider *boxCollider, Transform *otherTransform) override {
           return ManifoldPoints();
      }
+     // Group-mesh
+     ManifoldPoints test(Transform *transform, MeshCollider *meshCollider, Transform *otherTransform) override {
+          return ManifoldPoints();
+     }
      
-     
+     Vec3f support_point(Transform *transform, Vec3f direction) override {
+          return Vec3f(0.0f, 0.0f, 0.0f);
+     }
 
      void append(Collider *collider, Transform *location) {
           colliders.emplace_back(std::make_pair(collider, location));
@@ -2249,12 +2676,6 @@ namespace CollisionDetection {
           // Points on the spheres
           Vec3f AtoB = (otherPosition - position).nor();
           Vec3f BtoA = AtoB * -1;
-          /*
-          AtoB = AtoB.multiply(radiusOther);
-          BtoA = BtoA.multiply(radius);
-          AtoB = AtoB.add(position);
-          BtoA = BtoA.add(otherPosition);
-          */
           AtoB = AtoB * radiusOther + position;
           BtoA = BtoA * radius + otherPosition;
           
@@ -2312,6 +2733,14 @@ namespace CollisionDetection {
           Vec3f dir = BtoA - AtoB;
           Vec3f normal = Vec3f(dir).nor();
           return ManifoldPoints(AtoB, BtoA, normal, dir.len());
+     }
+     ManifoldPoints GJK(Collider *collider, Transform *transform, Collider *other, Transform *otherTransform) {
+          Simplex simplex;
+          
+          bool collided = GJK::contains_origin(simplex, collider, other, transform, otherTransform);
+          if (!collided) return ManifoldPoints();
+          
+          return GJK::expanding_polytope(simplex, collider, other, transform, otherTransform);
      }
 };
 
@@ -2414,9 +2843,7 @@ struct RigidBody : public Object {
          Vec3f gradient = transform->position - location;
          Vec3f amount = gradient.crs(direction);
          
-         torque.x += amount.x;
-         torque.y += amount.y;
-         torque.z += amount.z;
+         torque = torque + amount;
     }
         
     void set_mass(float newMass) {
@@ -2492,6 +2919,13 @@ struct ModelObject : public RigidBody {
               group->append(meshCollider, meshTransform);
          }
          
+         MeshGenerator::load_from_files(this->mesh, objFile, "");
+    }
+};
+struct MeshObject : public RigidBody {
+    MeshObject() : RigidBody() {}
+    MeshObject(const std::string &objFile) : RigidBody() {
+         this->collider = new MeshCollider(MeshGenerator::load_vertices(objFile));
          MeshGenerator::load_from_files(this->mesh, objFile, "");
     }
 };
@@ -2664,6 +3098,8 @@ struct SpringConstraint : Constraint {
          }
      }
      void render() override {
+         if (object1 == nullptr || object2 == nullptr) return;
+          
          Vec3f p1 = object1->transform->position;
          Vec3f p2 = object2->transform->position;
          
@@ -2753,9 +3189,9 @@ class ObjectLevel {
                        if (object1->immovable && object2->immovable) continue;
                        
                        ColliderGroup *group = dynamic_cast<ColliderGroup*>(object2->collider);
+                       
                        if (group == nullptr) continue;
                        
-   
                        for (auto &pair : group->colliders) {
                             Collider *collider = pair.first;
                             Transform *transform = pair.second;
@@ -2945,6 +3381,7 @@ class PhysicsLevel : public ObjectLevel {
         std::vector<Constraint*> constraints;
 };
 
+using Ball_t = SphereObject;
 class Level {
     public:
         bool completedLevel;
@@ -2972,9 +3409,11 @@ class Level {
                          
             
             ball = new SphereObject(0.35f);
+            //ball = new Ball_t("resources/objects/dodecahedron_TESS.obj");
+            
             ball->set_material(Materials::aluminium);
             ball->set_restitution(0.2f);
-                   
+            
             this->start(0);
         }
         void start(int levelIndex) {
@@ -2985,7 +3424,7 @@ class Level {
             level.add_object(ball);
            
             if (levelIndex == 0) {
-                       ball->place(2.0f, 100.0f, 0.0f);
+                       ball->place(2.0f, 10.0f, 0.0f);
                        
                        add_box(Vec3f(0.0f, -1.0f, 0.0f), 10.0f, 0.5f, 10.0f, "grass.png", Materials::grass);
                        add_box(Vec3f(-17.0f, -1.0f, 0.0f), 4.0f, 0.5f, 0.5f, "grass.png", Materials::grass);
@@ -3004,7 +3443,7 @@ class Level {
                        model->rotate(0.0f, M_PI, 0.0f);
                           
             } else if (levelIndex == 1) {
-                       ball->place(2.0f, 0.0f, 0.0f);
+                       ball->place(0.0f, 5.0f, 0.0f);
                        
                        add_box(Vec3f(0.0f, -1.0f, 0.0f), 5.0f, 0.5f, 5.0f, "grass.png", Materials::grass);
                        add_box(Vec3f(6.0f, 0.5f, 0.0f), 1.0f, 2.0f, 5.0f, "grass.png", Materials::grass);
@@ -3035,8 +3474,14 @@ class Level {
                        BoxObject *box = add_box(Vec3f(37.0f, 4.0f, 6.0f), 3.0f, 0.5f, 3.0f, "wood.png", Materials::wood);
                        ModelObject *bowl = add_model(Vec3f(37.0f, 2.0f, 6.0f), "bowl.obj", "wood.png", Materials::wood);
                        
+                       MeshObject *mesh = add_mesh_object(Vec3f(-2.0f, 1.5f, 0.0f), "icosahedron_TESS.obj", "", Materials::copper);
+                       mesh->set_immovable(false);
+                       
+                       
+                       
                        bowl->set_mass(1.0f);
                        bowl->set_immovable(false);
+                       
                        add_sphere(Vec3f(37.0f, 3.0f, 6.0f), 0.35f, Materials::copper);
                        
                        SpringConstraint *constraint = new SpringConstraint(3.0f, 7.0f, 10.0f);
@@ -3260,6 +3705,17 @@ class Level {
             level.add_object(model);
             return model;
         }
+        MeshObject *add_mesh_object(const Vec3f &position, const std::string &modelFile, const std::string &textureFile, const Material &material = Materials::defaultMaterial) {
+            MeshObject *obj = new MeshObject("resources/objects/" + modelFile);
+            
+            obj->set_immovable(true);
+            obj->place(position.x, position.y, position.z);
+            obj->set_material(material);
+            if (textureFile.compare("")) obj->set_texture("resources/textures/" + textureFile);
+            
+            level.add_object(obj);
+            return obj;
+        }
         Object *add_finish(const Vec3f &position, float width, float height, float depth) {
             Object *trigger = new Object(true);
             trigger->place(position.x, position.y, position.z);
@@ -3282,7 +3738,7 @@ class Level {
             level.add_constraint(constraint);
         }
         
-        SphereObject *get_ball() { return ball; }
+        Ball_t *get_ball() { return ball; }
          
     private:
         Level() {}
@@ -3297,13 +3753,13 @@ class Level {
         Skybox *skybox;
         
         PhysicsLevel level;
-        SphereObject *ball;
+        Ball_t *ball;
 };
 
 class BallControls {
     public:
         bool orbits = false;
-        BallControls(Camera *camera, SphereObject *ball) {
+        BallControls(Camera *camera, Ball_t *ball) {
             this->camera = camera;
             this->ball = ball;
         }
@@ -3356,6 +3812,7 @@ class BallControls {
         }
         void jump(const Vec3f &gravity) {
             if (!ball->has_collided()) return;
+            if (ball->collidingNormal.len2() < 0.1f) return;
             
             float strength = 7.5f;
             Vec3f normal = ball->collidingNormal;
@@ -3372,7 +3829,7 @@ class BallControls {
                  if (body != nullptr) {
                       if (!body->immovable) {
                            Vec3f impulse = velocity * (1 / body->mass);
-                           body->velocity = ball->velocity - impulse;
+                           body->velocity = body->velocity - impulse;
                            body->apply_instant_torque(ball->lastManifoldPoints.AtoB, impulse);
                       }
                       body->collidingObject = 0;
@@ -3391,7 +3848,7 @@ class BallControls {
             }
         }
     private:
-        SphereObject *ball;
+        Ball_t *ball;
         Camera *camera;
 };
 
@@ -3430,10 +3887,12 @@ class Aluminium3D : public Game {
            BatchRenderer::load();
            Level::get().load();
            
+           bool orbitMode = true;
+           
            camera = new Camera();
-           camera->useRotation = false;
+           camera->useRotation = !orbitMode;
            controls = new BallControls(camera, Level::get().get_ball());
-           controls->orbits = true;
+           controls->orbits = orbitMode;
        }
        void handle_event(SDL_Event ev, float timeTook) override {
            controls->handle_event(ev, timeTook);
@@ -3470,8 +3929,10 @@ class Aluminium3D : public Game {
                      timer = 0.0f;
                 }
            }
+           Vec3f ballPosition = Level::get().get_ball()->transform->position;
            UIRenderer::draw_string("FPS: " + std::to_string(fps), -0.9f, 0.8f, 0.5f, 0.5f);
-           UIRenderer::draw_string("Timer: " + std::to_string(int(timer)) + " seconds", -0.9f, 0.7f, 0.5f, 0.5f);
+           UIRenderer::draw_string("Timer: " + std::to_string((int)timer) + " seconds", -0.9f, 0.7f, 0.5f, 0.5f);
+           UIRenderer::draw_string("Position: (" + std::to_string((int)ballPosition.x) + ", " + std::to_string((int)ballPosition.y) + ", " + std::to_string((int)ballPosition.z) + ")", 0.5f, 0.8f, 0.5f, 0.5f);
           
            Level::get().render(camera);
            UIRenderer::render();
